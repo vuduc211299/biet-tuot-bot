@@ -3,7 +3,7 @@ import express from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer } from "./server.js";
 import { McpClientWrapper } from "./mcp-client.js";
-import { ClaudeAssistant } from "./claude.js";
+import { LlmAssistant, type LlmConfig } from "./llm.js";
 import { TelegramNewsBot } from "./telegram.js";
 
 function requireEnv(name: string): string {
@@ -17,9 +17,14 @@ async function main(): Promise<void> {
 
   // ---- 1. Validate required env vars ----
   const telegramToken = requireEnv("TELEGRAM_BOT_TOKEN");
-  const anthropicKey = requireEnv("ANTHROPIC_API_KEY");
+  const aiApiKey = requireEnv("AI_API_KEY");
+  const aiProvider = (process.env.AI_PROVIDER?.trim() || "openai") as LlmConfig["provider"];
+  const aiModel = process.env.AI_MODEL?.trim() || "gpt-4o";
+  const aiBaseUrl = process.env.AI_BASE_URL?.trim() || undefined;
   const mcpServerUrl = process.env.MCP_SERVER_URL ?? "http://localhost:3001/mcp";
   const port = parseInt(process.env.PORT ?? "3001", 10);
+
+  console.log(`AI Provider: ${aiProvider}, Model: ${aiModel}`);
 
   // ---- 2. Start MCP Server (Express HTTP) ----
   const app = express();
@@ -63,17 +68,20 @@ async function main(): Promise<void> {
   });
   console.log(`MCP Server running at http://localhost:${port}/mcp`);
 
-  // ---- 3. Initialize Claude + MCP Client ----
+  // ---- 3. Initialize LLM + MCP Client ----
   // Small delay to ensure Express is fully listening before connecting
   await new Promise(r => setTimeout(r, 300));
 
   const mcpClient = new McpClientWrapper(mcpServerUrl);
-  const claude = new ClaudeAssistant(anthropicKey, mcpClient);
-  await claude.initialize();
-  console.log("Claude Assistant initialized");
+  const llm = new LlmAssistant(
+    { provider: aiProvider, model: aiModel, apiKey: aiApiKey, baseUrl: aiBaseUrl },
+    mcpClient
+  );
+  await llm.initialize();
+  console.log("LLM Assistant initialized");
 
   // ---- 4. Start Telegram Bot ----
-  const bot = new TelegramNewsBot(telegramToken, claude);
+  const bot = new TelegramNewsBot(telegramToken, llm);
   await bot.start();
 
   // ---- 5. Graceful Shutdown ----

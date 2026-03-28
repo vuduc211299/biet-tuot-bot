@@ -1,5 +1,5 @@
 {
-  "name": "vnexpress-finance-bot",
+  "name": "news-finance-bot",
   "version": "1.0.0",
   "description": "VnExpress News + Financial Analysis MCP Chatbot via Telegram",
   "main": "./lib/src/index.js",
@@ -17,8 +17,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@ai-sdk/anthropic": "^3.0.64",
+    "@ai-sdk/google": "^3.0.53",
+    "@ai-sdk/openai": "^3.0.48",
     "@modelcontextprotocol/sdk": "^1.20.1",
+    "ai": "^6.0.141",
     "axios": "^1.14.0",
     "cheerio": "^1.2.0",
     "dotenv": "^17.3.1",

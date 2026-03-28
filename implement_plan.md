@@ -1,9 +1,11 @@
-# Implementation Plan: VnExpress News + Financial Analysis MCP Chatbot
+# Implementation Plan: News + Financial Analysis MCP Chatbot
 
 ## 1. Project Overview
 
 ### Objectives
+
 Build a comprehensive **Telegram chatbot** for news & financial analysis using MCP (Model Context Protocol) architecture. The bot is capable of:
+
 - Crawling news from VnExpress.net (geopolitics, politics, economics, law, etc.)
 - Fetching real-time crypto data from CoinGecko
 - Fetching Vietnam stock market data from KBS Securities
@@ -266,13 +268,14 @@ Build a comprehensive **Telegram chatbot** for news & financial analysis using M
 │  │  │  │  │          │ (localhost)             │                 │  │   │  │  │
 │  │  │  │  │  ┌───────▼────────┐  ┌───────────▼──────────────┐  │  │   │  │  │
 │  │  │  │  │  │ MCP Server     │  │ LLM API Client           │  │  │   │  │  │
-│  │  │  │  │  │ 8 tools        │  │ Tool-use loop            │  │  │   │  │  │
-│  │  │  │  │  │ 4 prompts      │  │ Conversation memory      │  │  │   │  │  │
+│  │  │  │  │  │ 8 tools        │  │ Vercel AI SDK            │  │  │   │  │  │
+│  │  │  │  │  │ 4 prompts      │  │ Tool-use loop (maxSteps) │  │  │   │  │  │
 │  │  │  │  │  └────────────────┘  └──────────────────────────┘  │  │   │  │  │
 │  │  │  │  └────────────────────────────────────────────────────┘  │   │  │  │
 │  │  │  │                                                          │   │  │  │
 │  │  │  │  ENV: TELEGRAM_BOT_TOKEN (from .env)                     │   │  │  │
-│  │  │  │       LLM_API_KEY  (from .env)                           │   │  │  │
+│  │  │  │       AI_API_KEY  (from .env)                             │   │  │  │
+│  │  │  │       AI_PROVIDER, AI_MODEL (from .env)                   │   │  │  │
 │  │  │  │       PORT=3001                                          │   │  │  │
 │  │  │  │                                                          │   │  │  │
 │  │  │  │  restart: unless-stopped                                 │   │  │  │
@@ -386,52 +389,55 @@ Build a comprehensive **Telegram chatbot** for news & financial analysis using M
 
 ## 2. File List
 
-| File | Action | Description |
-|------|--------|-------------|
-| `package.json` | **Edit** | Add dependencies + scripts (`start:bot`, `dev:bot`) |
-| `.env.example` | **Create** | Env vars template — safe to commit, no secrets |
-| `.env` | **Create** | Actual secrets — gitignored |
-| `.gitignore` | **Edit** | Add `.env` |
-| `.dockerignore` | **Create** | Exclude node_modules, .env, .git from Docker build context |
-| `Dockerfile` | **Create** | Multi-stage build: TS compile → Node production |
-| `docker-compose.yml` | **Create** | Single service, env_file, restart policy, healthcheck |
-| `src/vnexpress.ts` | **Create** | Crawl VnExpress RSS feeds + article content |
-| `src/crypto.ts` | **Create** | CoinGecko API client — crypto prices, trending, global data |
-| `src/stock.ts` | **Create** | KBS Vietnam stock API — VN-Index, stock prices, foreign flow |
-| `src/server.ts` | **Edit** | Remove `get_weather`, register 8 MCP tools + 4 MCP prompts |
-| `src/mcp-client.ts` | **Create** | MCP Client: connect server, list tools, call tools |
-| `src/llm.ts` | **Create** | LLM wrapper (Vercel AI SDK): provider-agnostic tool-use loop, conversation history |
-| `src/telegram.ts` | **Create** | Telegram Bot (grammY): commands, message handling, access control |
-| `src/bot-main.ts` | **Create** | Single-process entry: MCP Server + Bot concurrently |
-| `src/index.ts` | **Keep** | Entry point for MCP Server standalone (dev/inspect) |
+| File                 | Action     | Description                                                                                                                  |
+| -------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`       | **Edit**   | Add dependencies + scripts (`start:bot`, `dev:bot`)                                                                          |
+| `.env.example`       | **Create** | Env vars template — safe to commit, no secrets                                                                               |
+| `.env`               | **Create** | Actual secrets — gitignored                                                                                                  |
+| `.gitignore`         | **Edit**   | Add `.env`                                                                                                                   |
+| `.dockerignore`      | **Create** | Exclude node_modules, .env, .git from Docker build context                                                                   |
+| `Dockerfile`         | **Create** | Multi-stage build: TS compile → Node production                                                                              |
+| `docker-compose.yml` | **Create** | Single service, env_file, restart policy, healthcheck                                                                        |
+| `src/vnexpress.ts`   | **Create** | Crawl VnExpress RSS feeds + article content                                                                                  |
+| `src/crypto.ts`      | **Create** | CoinGecko API client — crypto prices, trending, global data                                                                  |
+| `src/stock.ts`       | **Create** | KBS Vietnam stock API — VN-Index, stock prices, foreign flow                                                                 |
+| `src/server.ts`      | **Edit**   | Remove `get_weather`, register 8 MCP tools + 4 MCP prompts                                                                   |
+| `src/mcp-client.ts`  | **Create** | MCP Client: connect server, list tools, call tools                                                                           |
+| `src/llm.ts`         | **Create** | LLM wrapper (Vercel AI SDK): provider-agnostic tool-use loop, conversation history, `AI_BASE_URL` for OpenAI-compatible APIs |
+| `src/telegram.ts`    | **Create** | Telegram Bot (grammY): commands, message handling, access control                                                            |
+| `src/bot-main.ts`    | **Create** | Single-process entry: MCP Server + Bot concurrently                                                                          |
+| `src/index.ts`       | **Keep**   | Entry point for MCP Server standalone (dev/inspect)                                                                          |
 
 ---
 
 ## 3. Dependencies
 
 ### Install command
+
 ```bash
 npm install cheerio axios grammy ai @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google dotenv
 npm install -D @types/cheerio
 ```
 
-> **Note:** Install only the `@ai-sdk/*` provider packages you plan to use.
-> Additional providers (Mistral, Groq, Ollama, etc.) can be added later.
+> **Note:** All three `@ai-sdk/*` provider packages are installed by default.
+> For OpenAI-compatible APIs (Ollama, Groq, Together, etc.), use `AI_PROVIDER=openai` with a custom `AI_BASE_URL`.
 
 ### Dependency map
-| Package | Purpose | Version |
-|---------|----------|---------|
-| `cheerio` | Parse HTML/XML (RSS feeds, article pages) | latest |
-| `axios` | HTTP client — fetch RSS, articles, API calls | latest |
-| `grammy` | Telegram Bot framework | latest |
-| `ai` | Vercel AI SDK — unified LLM interface, tool-use loop | latest |
-| `@ai-sdk/openai` | OpenAI/GPT provider adapter | latest |
-| `@ai-sdk/anthropic` | Anthropic/Claude provider adapter | latest |
-| `@ai-sdk/google` | Google/Gemini provider adapter | latest |
-| `dotenv` | Load .env file | latest |
-| `@types/cheerio` | TypeScript types (devDep) | latest |
+
+| Package             | Purpose                                              | Version |
+| ------------------- | ---------------------------------------------------- | ------- |
+| `cheerio`           | Parse HTML/XML (RSS feeds, article pages)            | latest  |
+| `axios`             | HTTP client — fetch RSS, articles, API calls         | latest  |
+| `grammy`            | Telegram Bot framework                               | latest  |
+| `ai`                | Vercel AI SDK — unified LLM interface, tool-use loop | latest  |
+| `@ai-sdk/openai`    | OpenAI/GPT provider adapter                          | latest  |
+| `@ai-sdk/anthropic` | Anthropic/Claude provider adapter                    | latest  |
+| `@ai-sdk/google`    | Google/Gemini provider adapter                       | latest  |
+| `dotenv`            | Load .env file                                       | latest  |
+| `@types/cheerio`    | TypeScript types (devDep)                            | latest  |
 
 ### Retained from current project
+
 - `@modelcontextprotocol/sdk` (^1.20.1) — MCP Server + Client
 - `express` (^4.21.2) — HTTP transport for MCP
 - `zod` (^3.24.2) — Input schema validation
@@ -442,11 +448,19 @@ npm install -D @types/cheerio
 ## 4. Environment Variables
 
 ### `.env.example` (tracked in git)
+
 ```env
 TELEGRAM_BOT_TOKEN=
-LLM_PROVIDER=anthropic
-LLM_API_KEY=
-LLM_MODEL=claude-sonnet-4-20250514
+
+# AI Provider Configuration
+# AI_PROVIDER: "openai" | "anthropic" | "google" (default: openai)
+# AI_MODEL: model name, e.g. "gpt-4o", "claude-sonnet-4-20250514", "gemini-2.0-flash"
+# AI_BASE_URL: (optional) custom endpoint for OpenAI-compatible APIs (Ollama, Groq, Together, etc.)
+AI_PROVIDER=openai
+AI_MODEL=gpt-4o
+AI_API_KEY=
+AI_BASE_URL=
+
 MCP_SERVER_URL=http://localhost:3001/mcp
 PORT=3001
 
@@ -456,11 +470,15 @@ ALLOWED_CHAT_IDS=
 ```
 
 ### `.env` (gitignored)
+
 ```env
 TELEGRAM_BOT_TOKEN=7xxxxxx:AAxxxxxxxxxxxxxxxx
-LLM_PROVIDER=anthropic
-LLM_API_KEY=sk-ant-xxxxxxxxxxxxxxxx
-LLM_MODEL=claude-sonnet-4-20250514
+
+AI_PROVIDER=openai
+AI_MODEL=gpt-4o
+AI_API_KEY=sk-xxxxxxxxxxxxxxxx
+AI_BASE_URL=
+
 MCP_SERVER_URL=http://localhost:3001/mcp
 PORT=3001
 
@@ -473,13 +491,29 @@ ALLOWED_CHAT_IDS=123456789,987654321
 ```
 
 ### How to obtain tokens
+
 1. **Telegram Bot Token**: Chat with [@BotFather](https://t.me/BotFather) → `/newbot` → receive token
-2. **LLM API Key**: Obtain from your provider:
-   - Anthropic: [console.anthropic.com](https://console.anthropic.com) → API Keys
+2. **AI API Key**: Obtain from your provider:
    - OpenAI: [platform.openai.com](https://platform.openai.com) → API Keys
+   - Anthropic: [console.anthropic.com](https://console.anthropic.com) → API Keys
    - Google: [aistudio.google.com](https://aistudio.google.com) → API Keys
-3. **LLM_PROVIDER**: One of `openai`, `anthropic`, `google` (matches `@ai-sdk/*` package names)
-4. **LLM_MODEL**: Model identifier, e.g. `gpt-4o`, `claude-sonnet-4-20250514`, `gemini-2.0-flash`
+3. **AI_PROVIDER**: One of `openai`, `anthropic`, `google` (default: `openai`)
+4. **AI_MODEL**: Model identifier, e.g. `gpt-4o`, `claude-sonnet-4-20250514`, `gemini-2.0-flash`
+5. **AI_BASE_URL** (optional): Custom endpoint for OpenAI-compatible APIs:
+   - Ollama: `http://localhost:11434/v1`
+   - Groq: `https://api.groq.com/openai/v1`
+   - Together: `https://api.together.xyz/v1`
+
+### Switching providers — quick reference
+
+| Provider       | `AI_PROVIDER` | `AI_MODEL`                                     | `AI_BASE_URL`                    |
+| -------------- | ------------- | ---------------------------------------------- | -------------------------------- |
+| OpenAI         | `openai`      | `gpt-4o`                                       | (empty)                          |
+| Anthropic      | `anthropic`   | `claude-sonnet-4-20250514`                     | (empty)                          |
+| Google         | `google`      | `gemini-2.0-flash`                             | (empty)                          |
+| Ollama (local) | `openai`      | `llama3`                                       | `http://localhost:11434/v1`      |
+| Groq           | `openai`      | `llama-3.1-70b-versatile`                      | `https://api.groq.com/openai/v1` |
+| Together AI    | `openai`      | `meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo` | `https://api.together.xyz/v1`    |
 
 ---
 
@@ -488,47 +522,69 @@ ALLOWED_CHAT_IDS=123456789,987654321
 ### 5.1. `src/vnexpress.ts` — VnExpress News Crawler
 
 #### Type definitions
+
 ```ts
 interface NewsArticle {
-  id: string;            // từ URL, vd: "5055753"
+  id: string; // từ URL, vd: "5055753"
   title: string;
-  summary: string;       // lead paragraph từ RSS description
+  summary: string; // lead paragraph từ RSS description
   url: string;
-  publishedAt: string;   // ISO 8601 từ RSS pubDate
-  category: string;      // "the-gioi" | "kinh-doanh" | ...
+  publishedAt: string; // ISO 8601 từ RSS pubDate
+  category: string; // "the-gioi" | "kinh-doanh" | ...
   categoryLabel: string; // "Thế giới" | "Kinh doanh" | ...
   thumbnailUrl?: string; // từ RSS enclosure
 }
 
 interface ArticleDetail extends NewsArticle {
-  content: string;       // full article body (paragraphs joined)
+  content: string; // full article body (paragraphs joined)
   author?: string;
 }
 ```
 
 #### RSS Feed Map
+
 ```ts
 const RSS_FEEDS: Record<string, { url: string; label: string }> = {
-  "tin-moi-nhat": { url: "https://vnexpress.net/rss/tin-moi-nhat.rss", label: "Tin mới nhất" },
-  "the-gioi":     { url: "https://vnexpress.net/rss/the-gioi.rss",     label: "Thế giới" },
-  "thoi-su":      { url: "https://vnexpress.net/rss/thoi-su.rss",      label: "Thời sự" },
-  "kinh-doanh":   { url: "https://vnexpress.net/rss/kinh-doanh.rss",   label: "Kinh doanh" },
-  "bat-dong-san": { url: "https://vnexpress.net/rss/bat-dong-san.rss",  label: "Bất động sản" },
-  "khoa-hoc":     { url: "https://vnexpress.net/rss/khoa-hoc.rss",     label: "Khoa học" },
-  "so-hoa":       { url: "https://vnexpress.net/rss/so-hoa.rss",       label: "Số hóa" },
-  "phap-luat":    { url: "https://vnexpress.net/rss/phap-luat.rss",    label: "Pháp luật" },
+  "tin-moi-nhat": {
+    url: "https://vnexpress.net/rss/tin-moi-nhat.rss",
+    label: "Tin mới nhất",
+  },
+  "the-gioi": {
+    url: "https://vnexpress.net/rss/the-gioi.rss",
+    label: "Thế giới",
+  },
+  "thoi-su": { url: "https://vnexpress.net/rss/thoi-su.rss", label: "Thời sự" },
+  "kinh-doanh": {
+    url: "https://vnexpress.net/rss/kinh-doanh.rss",
+    label: "Kinh doanh",
+  },
+  "bat-dong-san": {
+    url: "https://vnexpress.net/rss/bat-dong-san.rss",
+    label: "Bất động sản",
+  },
+  "khoa-hoc": {
+    url: "https://vnexpress.net/rss/khoa-hoc.rss",
+    label: "Khoa học",
+  },
+  "so-hoa": { url: "https://vnexpress.net/rss/so-hoa.rss", label: "Số hóa" },
+  "phap-luat": {
+    url: "https://vnexpress.net/rss/phap-luat.rss",
+    label: "Pháp luật",
+  },
 };
 ```
 
 #### Exported functions
-| Function | Input | Output | Mô tả |
-|----------|-------|--------|-------|
-| `fetchCategoryFeed(category)` | `string` | `NewsArticle[]` | Fetch + parse RSS feed, cache 5 phút |
-| `fetchArticleContent(url)` | `string` | `ArticleDetail` | Fetch HTML, parse body từ `article.fck_detail p.Normal` |
-| `searchArticles(keyword, category?)` | `string, string?` | `NewsArticle[]` | Filter cached articles bằng keyword match |
-| `getMultiCategoryOverview(categories, limit)` | `string[], number` | `Record<string, NewsArticle[]>` | Parallel fetch nhiều categories |
+
+| Function                                      | Input              | Output                          | Mô tả                                                   |
+| --------------------------------------------- | ------------------ | ------------------------------- | ------------------------------------------------------- |
+| `fetchCategoryFeed(category)`                 | `string`           | `NewsArticle[]`                 | Fetch + parse RSS feed, cache 5 phút                    |
+| `fetchArticleContent(url)`                    | `string`           | `ArticleDetail`                 | Fetch HTML, parse body từ `article.fck_detail p.Normal` |
+| `searchArticles(keyword, category?)`          | `string, string?`  | `NewsArticle[]`                 | Filter cached articles bằng keyword match               |
+| `getMultiCategoryOverview(categories, limit)` | `string[], number` | `Record<string, NewsArticle[]>` | Parallel fetch nhiều categories                         |
 
 #### Crawling strategy
+
 - **Dùng RSS feeds** (không scrape HTML listing) — RSS có cấu trúc XML ổn định, dễ parse
 - RSS `<description>` CDATA chứa `<a><img></a></br>Summary text` → strip HTML, lấy text summary
 - Full article: parse `article.fck_detail p.Normal` (legacy FCKEditor class, rất ổn định)
@@ -536,18 +592,20 @@ const RSS_FEEDS: Record<string, { url: string; label: string }> = {
 - Article ID: regex `/(\d+)\.html$/` từ URL
 
 #### Caching
+
 ```ts
-const CACHE_TTL_RSS = 5 * 60 * 1000;       // 5 phút cho RSS feeds
-const CACHE_TTL_ARTICLE = 60 * 60 * 1000;  // 1 giờ cho full article
+const CACHE_TTL_RSS = 5 * 60 * 1000; // 5 phút cho RSS feeds
+const CACHE_TTL_ARTICLE = 60 * 60 * 1000; // 1 giờ cho full article
 
 const cache = {
-  articles: new Map<string, NewsArticle>(),       // article ID → article
-  fullContent: new Map<string, ArticleDetail>(),   // article ID → full content
-  categoryLastFetch: new Map<string, number>(),    // category → timestamp ms
+  articles: new Map<string, NewsArticle>(), // article ID → article
+  fullContent: new Map<string, ArticleDetail>(), // article ID → full content
+  categoryLastFetch: new Map<string, number>(), // category → timestamp ms
 };
 ```
 
 #### HTTP config
+
 ```ts
 const axiosInstance = axios.create({
   timeout: 15000,
@@ -559,6 +617,7 @@ const axiosInstance = axios.create({
 ```
 
 #### Error handling
+
 - `fetchWithRetry(url, retries=2)` — retry 2 lần, delay 1s giữa mỗi lần
 - RSS feed trống → throw error rõ ràng
 - Full article fetch fail → trả về cached summary + note "Could not fetch full article"
@@ -570,11 +629,12 @@ const axiosInstance = axios.create({
 #### Base URL: `https://api.coingecko.com/api/v3` (free, no API key)
 
 #### Type definitions
+
 ```ts
 interface CryptoPrice {
-  id: string;           // "bitcoin"
-  symbol: string;       // "btc"
-  name: string;         // "Bitcoin"
+  id: string; // "bitcoin"
+  symbol: string; // "btc"
+  name: string; // "Bitcoin"
   current_price: number;
   price_change_24h: number;
   price_change_percentage_24h: number;
@@ -601,13 +661,14 @@ interface TrendingCoin {
 ```
 
 #### Exported functions
-| Function | API Endpoint | Mô tả |
-|----------|-------------|-------|
-| `fetchCryptoPrices(ids)` | `/simple/price` | Giá BTC, ETH, SOL...  (USD + VND) |
-| `fetchTopCoins(limit)` | `/coins/markets` | Top N coins theo market cap |
-| `fetchGlobalData()` | `/global` | Total market cap, BTC dominance, volume 24h |
-| `fetchTrending()` | `/search/trending` | Top 7 trending coins |
-| `getCryptoOverview()` | Tất cả trên | Tổng hợp: global + top 10 + trending |
+
+| Function                 | API Endpoint       | Mô tả                                       |
+| ------------------------ | ------------------ | ------------------------------------------- |
+| `fetchCryptoPrices(ids)` | `/simple/price`    | Giá BTC, ETH, SOL... (USD + VND)            |
+| `fetchTopCoins(limit)`   | `/coins/markets`   | Top N coins theo market cap                 |
+| `fetchGlobalData()`      | `/global`          | Total market cap, BTC dominance, volume 24h |
+| `fetchTrending()`        | `/search/trending` | Top 7 trending coins                        |
+| `getCryptoOverview()`    | Tất cả trên        | Tổng hợp: global + top 10 + trending        |
 
 #### Cache: TTL 3 phút (crypto data thay đổi nhanh)
 
@@ -618,27 +679,30 @@ interface TrendingCoin {
 ### 5.3. `src/stock.ts` — KBS Vietnam Stock API
 
 #### Base URLs
+
 ```
 https://kbbuddywts.kbsec.com.vn/iis-server/investment/...
 https://kbbuddywts.kbsec.com.vn/iis-server/sas/...
 ```
+
 Free, không cần auth.
 
 #### Type definitions
+
 ```ts
 interface MarketIndex {
-  indexName: string;     // "VNINDEX" | "HNX" | "UPCOM"
-  indexValue: number;    // 1285.43
-  change: number;        // +5.62
+  indexName: string; // "VNINDEX" | "HNX" | "UPCOM"
+  indexValue: number; // 1285.43
+  change: number; // +5.62
   changePercent: number; // +0.44
   totalVolume: number;
-  totalValue: number;    // tỷ VND
+  totalValue: number; // tỷ VND
 }
 
 interface StockPrice {
-  symbol: string;        // "VNM"
-  price: number;         // 72500
-  change: number;        // -500
+  symbol: string; // "VNM"
+  price: number; // 72500
+  change: number; // -500
   changePercent: number; // -0.68
   volume: number;
   high: number;
@@ -658,14 +722,15 @@ interface StockHistory {
 ```
 
 #### Exported functions
-| Function | Mô tả |
-|----------|-------|
-| `fetchMarketIndices()` | VNINDEX, HNX, UPCOM — giá trị, thay đổi, volume |
-| `fetchStockPrice(symbol)` | Giá cổ phiếu cụ thể (VNM, FPT, VIC...) |
-| `fetchTopVolume(limit)` | Top N cổ phiếu volume cao nhất |
-| `fetchForeignFlow()` | Dòng tiền ngoại: mua ròng / bán ròng |
-| `fetchStockHistory(symbol, days)` | Lịch sử giá N ngày gần nhất |
-| `getVNStockOverview()` | Tổng hợp: indices + top volume + foreign flow |
+
+| Function                          | Mô tả                                           |
+| --------------------------------- | ----------------------------------------------- |
+| `fetchMarketIndices()`            | VNINDEX, HNX, UPCOM — giá trị, thay đổi, volume |
+| `fetchStockPrice(symbol)`         | Giá cổ phiếu cụ thể (VNM, FPT, VIC...)          |
+| `fetchTopVolume(limit)`           | Top N cổ phiếu volume cao nhất                  |
+| `fetchForeignFlow()`              | Dòng tiền ngoại: mua ròng / bán ròng            |
+| `fetchStockHistory(symbol, days)` | Lịch sử giá N ngày gần nhất                     |
+| `getVNStockOverview()`            | Tổng hợp: indices + top volume + foreign flow   |
 
 #### Cache: TTL 5 phút (thị trường VN giao dịch 9h-15h, ngoài giờ data ít thay đổi)
 
@@ -680,6 +745,7 @@ Xóa hoàn toàn `get_weather` tool. Đổi server name → `"vnexpress-finance"
 #### News Tools (3)
 
 **Tool: `vnexpress_get_latest_news`**
+
 ```
 Title: "Get Latest VnExpress News"
 Description: "Fetch latest news articles from VnExpress.net by category. Returns titles, summaries, URLs, timestamps."
@@ -694,6 +760,7 @@ Handler:
 ```
 
 **Tool: `vnexpress_search_news`**
+
 ```
 Title: "Search VnExpress News"
 Description: "Search cached VnExpress articles by keyword in titles and summaries."
@@ -707,6 +774,7 @@ Handler:
 ```
 
 **Tool: `vnexpress_get_article_content`**
+
 ```
 Title: "Get Article Content"
 Description: "Fetch full text of a VnExpress article by ID or URL."
@@ -722,6 +790,7 @@ Handler:
 #### Crypto Tools (2)
 
 **Tool: `crypto_get_overview`**
+
 ```
 Title: "Crypto Market Overview"
 Description: "Get crypto market overview: global data, top coins, trending. Data from CoinGecko."
@@ -732,6 +801,7 @@ Handler:
 ```
 
 **Tool: `crypto_get_prices`**
+
 ```
 Title: "Crypto Prices"
 Description: "Get current prices for specific cryptocurrencies."
@@ -745,6 +815,7 @@ Handler:
 #### Stock Tools (3)
 
 **Tool: `stock_vn_overview`**
+
 ```
 Title: "Vietnam Stock Market Overview"
 Description: "Get VN stock market overview: VNINDEX, HNX, UPCOM, top volume, foreign flow."
@@ -755,6 +826,7 @@ Handler:
 ```
 
 **Tool: `stock_get_price`**
+
 ```
 Title: "Stock Price"
 Description: "Get current price for a specific stock symbol on HOSE/HNX/UPCOM."
@@ -766,6 +838,7 @@ Handler:
 ```
 
 **Tool: `stock_get_history`**
+
 ```
 Title: "Stock Price History"
 Description: "Get price history for a stock over N days."
@@ -780,6 +853,7 @@ Handler:
 ### 6.2. Bốn (4) MCP Prompts
 
 **Prompt: `analyze_news`**
+
 ```
 Title: "Analyze News"
 Args: topic (string), focus? (enum: geopolitics | economics | financial_markets | social_impact | general)
@@ -792,6 +866,7 @@ Returns prompt instructing the LLM to:
 ```
 
 **Prompt: `market_sentiment`**
+
 ```
 Title: "Market Sentiment Analysis"
 Args: market? (enum: crypto | stock | all)
@@ -803,6 +878,7 @@ Returns prompt instructing the LLM to:
 ```
 
 **Prompt: `risk_assessment`**
+
 ```
 Title: "Risk Assessment"
 Args: (none)
@@ -815,6 +891,7 @@ Returns prompt instructing the LLM to:
 ```
 
 **Prompt: `trading_plan`**
+
 ```
 Title: "Trading Plan"
 Args: market (enum: crypto | stock), timeframe? (enum: day | week | month)
@@ -860,8 +937,8 @@ Connects to MCP Server via HTTP, provides the tool interface for the AI layer.
 ```ts
 interface ToolCallResult {
   success: boolean;
-  data: string;         // response text (on success) or error message (on failure)
-  toolName: string;     // name of the tool that was called
+  data: string; // response text (on success) or error message (on failure)
+  toolName: string; // name of the tool that was called
   errorReason?: string; // human-readable error cause, only present when success=false
 }
 ```
@@ -872,17 +949,33 @@ interface ToolCallResult {
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
+export interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ToolCallResult {
+  success: boolean;
+  data: string;
+  toolName: string;
+  errorReason?: string;
+}
+
 class McpClientWrapper {
   private client: Client;
 
-  async connect(): Promise<void>
+  async connect(): Promise<void>;
   // new Client() → connect(new StreamableHTTPClientTransport("http://localhost:3001/mcp"))
 
-  async getToolDefinitions(): Promise<ToolDefinition[]>
-  // client.listTools() → convert each tool to a normalized ToolDefinition:
+  async getToolDefinitions(): Promise<McpToolDefinition[]>;
+  // client.listTools() → convert each tool to a normalized McpToolDefinition:
   // { name, description, inputSchema: { type: "object", properties, required } }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult>
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<ToolCallResult>;
   // 1. client.callTool({ name, arguments: args })
   // 2. Inspect result.isError:
   //    - false → return { success: true, data: result text, toolName: name }
@@ -890,7 +983,7 @@ class McpClientWrapper {
   //              return { success: false, data: errorMsg, toolName: name, errorReason: reason }
   // 3. Network/HTTP errors are caught and also returned as { success: false, ... }
 
-  async disconnect(): Promise<void>
+  async disconnect(): Promise<void>;
   // client.close()
 }
 ```
@@ -924,22 +1017,22 @@ async callTool(name: string, args: Record<string, unknown>): Promise<ToolCallRes
 }
 ```
 
-**Key point** — MCP Client returns raw tool definitions. The LLM wrapper (`llm.ts`) converts them to AI SDK `CoreTool` format using the `tool()` function from `ai`:
+**Key point** — MCP Client returns raw tool definitions as generic `McpToolDefinition` objects (no Anthropic dependency). The LLM wrapper (`llm.ts`) converts them to AI SDK `CoreTool` format using the `tool()` and `jsonSchema()` functions from `ai`:
+
 ```ts
-// MCP Server raw format:
-{ name: "vnexpress_get_latest_news", inputSchema: { type: "object", properties: {...} } }
+// MCP Server raw format (via McpToolDefinition):
+{ name: "vnexpress_get_latest_news", description: "...", inputSchema: { type: "object", properties: {...} } }
 
-// Converted to AI SDK CoreTool (in llm.ts):
-import { tool } from "ai";
-import { z } from "zod";
+// Converted to AI SDK CoreTool (in llm.ts buildTools()):
+import { tool, jsonSchema } from "ai";
 
-const toolDefs = {
-  vnexpress_get_latest_news: tool({
-    description: "...",
-    parameters: jsonSchemaToZod(inputSchema),  // convert JSON Schema → Zod
-    execute: async (args) => mcpClient.callTool("vnexpress_get_latest_news", args),
-  }),
-};
+tools[toolName] = tool({
+  description: def.description,
+  parameters: jsonSchema(def.inputSchema),
+  execute: async (args) => {
+    // retry logic + mcpClient.callTool(toolName, args)
+  },
+});
 ```
 
 ---
@@ -950,11 +1043,12 @@ Provider-agnostic AI layer using [Vercel AI SDK](https://ai-sdk.dev). Switch mod
 
 ### Supported providers
 
-| LLM_PROVIDER | Package | Example LLM_MODEL values |
-|-------------|---------|-------------------------|
-| `openai` | `@ai-sdk/openai` | `gpt-4o`, `gpt-4o-mini`, `o1-preview` |
-| `anthropic` | `@ai-sdk/anthropic` | `claude-sonnet-4-20250514`, `claude-3-5-haiku-20241022` |
-| `google` | `@ai-sdk/google` | `gemini-2.0-flash`, `gemini-1.5-pro` |
+| AI_PROVIDER                | Package             | Example AI_MODEL values                                 |
+| -------------------------- | ------------------- | ------------------------------------------------------- |
+| `openai`                   | `@ai-sdk/openai`    | `gpt-4o`, `gpt-4o-mini`, `o1-preview`                   |
+| `anthropic`                | `@ai-sdk/anthropic` | `claude-sonnet-4-20250514`, `claude-3-5-haiku-20241022` |
+| `google`                   | `@ai-sdk/google`    | `gemini-2.0-flash`, `gemini-1.5-pro`                    |
+| `openai` (+ `AI_BASE_URL`) | `@ai-sdk/openai`    | Any OpenAI-compatible model (Ollama, Groq, Together)    |
 
 ### Provider factory
 
@@ -962,17 +1056,41 @@ Provider-agnostic AI layer using [Vercel AI SDK](https://ai-sdk.dev). Switch mod
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import type { LanguageModelV1 } from "ai";
 
-function createModelInstance(provider: string, apiKey: string, model: string) {
-  switch (provider) {
+export interface LlmConfig {
+  provider: "openai" | "anthropic" | "google";
+  model: string;
+  apiKey: string;
+  baseUrl?: string; // optional: for OpenAI-compatible APIs (Ollama, Groq, etc.)
+}
+
+function createModel(config: LlmConfig): LanguageModelV1 {
+  switch (config.provider) {
+    case "anthropic": {
+      const provider = createAnthropic({
+        apiKey: config.apiKey,
+        ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+      });
+      return provider(config.model);
+    }
+    case "google": {
+      const provider = createGoogleGenerativeAI({
+        apiKey: config.apiKey,
+        ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+      });
+      return provider(config.model);
+    }
     case "openai":
-      return createOpenAI({ apiKey })(model);
-    case "anthropic":
-      return createAnthropic({ apiKey })(model);
-    case "google":
-      return createGoogleGenerativeAI({ apiKey })(model);
-    default:
-      throw new Error(`Unsupported LLM provider: ${provider}`);
+    default: {
+      // Also works with any OpenAI-compatible API (Ollama, Groq, Together, etc.)
+      const provider = createOpenAI({
+        apiKey: config.apiKey,
+        compatibility: "strict",
+        ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+      });
+      return provider(config.model);
+    }
   }
 }
 ```
@@ -980,43 +1098,52 @@ function createModelInstance(provider: string, apiKey: string, model: string) {
 ### Constants
 
 ```ts
-const TOOL_MAX_RETRIES = 3;      // max retry attempts per tool call
+const TOOL_MAX_RETRIES = 3; // max retry attempts per tool call
 const TOOL_RETRY_DELAY_MS = 1000; // 1 second delay between retries
 ```
 
 ### Class interface
 
 ```ts
-import { generateText, LanguageModel, CoreMessage, CoreTool } from "ai";
+import {
+  generateText,
+  type LanguageModelV1,
+  type CoreMessage,
+  type CoreTool,
+} from "ai";
 
-class LLMAssistant {
-  private model: LanguageModel;
+class LlmAssistant {
+  private model: LanguageModelV1;
   private conversations: Map<string, CoreMessage[]>; // chatId → message history
-  private tools: Record<string, CoreTool>;  // AI SDK tool definitions
+  private mcpToolDefs: McpToolDefinition[]; // raw MCP tool definitions
   private mcpClient: McpClientWrapper;
 
-  constructor(provider: string, apiKey: string, modelName: string, mcpClient: McpClientWrapper)
-  // Creates model instance via provider factory
+  constructor(config: LlmConfig, mcpClient: McpClientWrapper);
+  // Creates model instance via createModel(config)
 
-  async initialize(): Promise<void>
+  async initialize(): Promise<void>;
   // 1. mcpClient.connect()
   // 2. Fetch MCP tool definitions
-  // 3. Convert to AI SDK CoreTool format with execute callbacks
+  // 3. Store raw definitions (tools are built per-chat call for notifyUser binding)
 
-  async chat(chatId: string, userMessage: string,
-    notifyUser: (msg: string) => Promise<void> = async () => {}
-  ): Promise<string>
+  private buildTools(
+    notifyUser: (msg: string) => Promise<void>,
+  ): Record<string, CoreTool>;
+  // Converts McpToolDefinition[] to AI SDK CoreTool format
+  // Each tool's execute() callback wraps mcpClient.callTool() with retry logic
+
+  async chat(
+    chatId: string,
+    userMessage: string,
+    notifyUser: (msg: string) => Promise<void> = async () => {},
+  ): Promise<string>;
   // See tool-use loop detail below
 
-  private async callToolWithRetry(
-    toolName: string,
-    toolInput: Record<string, unknown>,
-    notifyUser: (msg: string) => Promise<void>
-  ): Promise<ToolCallResult>
-  // See retry logic detail below
-
-  clearHistory(chatId: string): void
+  clearHistory(chatId: string): void;
   // Clear conversation history for a given chatId
+
+  getHistoryLength(chatId: string): number;
+  // Return number of messages in history for a given chatId
 }
 ```
 
@@ -1032,89 +1159,72 @@ async chat(chatId: string, userMessage: string,
   const history = this.conversations.get(chatId) || [];
   history.push({ role: "user", content: userMessage });
 
-  // 2. Call AI SDK generateText() with automatic tool-use loop:
+  // 2. Build tools with notifyUser bound into retry logic
+  const tools = this.buildTools(notifyUser);
+
+  // 3. Call AI SDK generateText() with automatic tool-use loop:
   const result = await generateText({
     model: this.model,        // any provider: openai/anthropic/google/etc.
     system: SYSTEM_PROMPT,
     messages: history,
-    tools: this.tools,        // MCP tools converted to CoreTool format
+    tools,                    // MCP tools converted to CoreTool format
     maxSteps: 10,             // max tool-use round trips before stopping
-    onStepFinish: async ({ toolCalls, toolResults }) => {
-      // Optional: notify user which tools are being called
-      for (const call of toolCalls ?? []) {
-        // Retry logic is handled inside tool execute() callbacks
-      }
-    },
   });
 
-  // 3. Extract final text
-  const responseText = result.text;
+  // 4. Extract final text
+  const finalText = result.text
+    || "I was unable to generate a response. Please try again.";
 
-  // 4. Append full exchange to history
-  history.push({ role: "assistant", content: responseText });
+  // 5. Append all response messages (assistant + tool round-trips) to history
+  history.push(...(result.response.messages as CoreMessage[]));
 
-  // 5. Trim history if > 20 messages
-  if (history.length > 20) {
-    this.conversations.set(chatId, history.slice(-20));
-  } else {
-    this.conversations.set(chatId, history);
-  }
+  // 6. Trim history if > 20 messages
+  const trimmed = history.length > 20 ? history.slice(-20) : history;
+  this.conversations.set(chatId, trimmed);
 
-  return responseText;
+  return finalText;
 }
 ```
 
-**Key difference from manual loop:** The AI SDK `generateText()` with `maxSteps` automatically:
+**Key difference from manual loop:** The AI SDK `generateText()` with `maxSteps` automatically handles re-invoking the model after tool results. Retry logic for individual tool failures is embedded inside each tool's `execute()` callback in `buildTools()`.
 
-### Retry logic — `callToolWithRetry()` detail
+### Retry logic — embedded in `buildTools()` `execute()` callbacks
+
+Each tool's `execute()` function wraps `mcpClient.callTool()` with retry logic and the `notifyUser` callback:
 
 ```ts
-private async callToolWithRetry(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  notifyUser: (msg: string) => Promise<void>
-): Promise<ToolCallResult> {
+execute: async (args) => {
+  console.log(`[Tool] ${toolName}(${JSON.stringify(args)})`);
 
   for (let attempt = 1; attempt <= TOOL_MAX_RETRIES; attempt++) {
-    const result = await this.mcpClient.callTool(toolName, toolInput);
+    const result = await this.mcpClient.callTool(toolName, args);
 
     if (result.success) {
-      // Tool succeeded — if this was a retry, optionally notify success
       if (attempt > 1) {
-        await notifyUser(`✅ Tool \`${toolName}\` succeeded on attempt ${attempt}.`);
+        await notifyUser(
+          `✅ Tool \`${toolName}\` succeeded on attempt ${attempt}.`,
+        );
       }
-      return result;
+      return result.data;
     }
 
-    // Tool failed on this attempt
-    const isLastAttempt = attempt === TOOL_MAX_RETRIES;
-
-    if (!isLastAttempt) {
-      // Notify user of the failure and that we are retrying
+    if (attempt < TOOL_MAX_RETRIES) {
       await notifyUser(
         `⚠️ Tool \`${toolName}\` failed (attempt ${attempt}/${TOOL_MAX_RETRIES}).\n` +
-        `Reason: ${result.errorReason ?? "Unknown error"}.\n` +
-        `Retrying in ${TOOL_RETRY_DELAY_MS / 1000}s...`
+          `Reason: ${result.errorReason ?? "Unknown error"}.\n` +
+          `Retrying in ${TOOL_RETRY_DELAY_MS / 1000}s...`,
       );
       await delay(TOOL_RETRY_DELAY_MS);
     } else {
-      // All retries exhausted — notify user of final failure
       await notifyUser(
         `❌ Tool \`${toolName}\` failed after ${TOOL_MAX_RETRIES} attempts.\n` +
-        `Reason: ${result.errorReason ?? "Unknown error"}.\n` +
-        `Please try again later.`
+          `Reason: ${result.errorReason ?? "Unknown error"}.`,
       );
     }
   }
 
-  // Return the last failure result so LLM can acknowledge it in context
-  return {
-    success: false,
-    toolName,
-    data: `Tool failed after ${TOOL_MAX_RETRIES} retries.`,
-    errorReason: "Max retries exceeded",
-  };
-}
+  return `[TOOL_ERROR] ${toolName} failed after ${TOOL_MAX_RETRIES} retries`;
+};
 ```
 
 ### Retry flow diagram
@@ -1153,17 +1263,18 @@ chat() calls callToolWithRetry("stock_vn_overview", {})
 
 ### notifyUser callback
 
-The `notifyUser` callback is injected by `telegram.ts` when calling `claude.chat()`, so retry notifications are sent **in real-time** during the tool-use loop — not batched at the end.
+The `notifyUser` callback is injected by `telegram.ts` when calling `llm.chat()`, so retry notifications are sent **in real-time** during the tool-use loop — not batched at the end.
 
 ```ts
 // In telegram.ts:
 const notifyUser = async (msg: string) => {
-  await ctx.reply(msg);  // interim message, no Markdown parsing needed
+  await ctx.reply(msg); // interim message, no Markdown parsing needed
 };
 const response = await this.llm.chat(chatId, text, notifyUser);
 ```
 
 This means the `chat()` signature is:
+
 ```ts
 async chat(
   chatId: string,
@@ -1171,9 +1282,11 @@ async chat(
   notifyUser: (msg: string) => Promise<void> = async () => {}
 ): Promise<string>
 ```
+
 The default no-op allows `chat()` to be called without a notify callback (e.g. in tests).
 
 ### System Prompt
+
 ```
 You are a professional, independent financial and current affairs analyst.
 
@@ -1198,19 +1311,19 @@ import { Bot, Context } from "grammy";
 
 class TelegramNewsBot {
   private bot: Bot;
-  private llm: LLMAssistant;
-  private adminChatId: string;             // Sole owner
-  private allowedChatIds: Set<string>;     // Whitelisted user IDs
+  private llm: LlmAssistant;
+  private adminChatId: string; // Sole owner
+  private allowedChatIds: Set<string>; // Whitelisted user IDs
 
-  constructor(token: string, llm: LLMAssistant)
+  constructor(token: string, llm: LlmAssistant);
 
-  setupAccessControl(): void
+  setupAccessControl(): void;
   // Access control middleware
 
-  setupCommands(): void
+  setupCommands(): void;
   // Register all command handlers (including admin commands)
 
-  start(): Promise<void>
+  start(): Promise<void>;
   // bot.start() → long polling
 }
 ```
@@ -1221,11 +1334,11 @@ class TelegramNewsBot {
 
 Bot chỉ phục vụ **cá nhân** và **một số người được share**. Cơ chế:
 
-| Role | Quyền | Cách xác thực |
-|------|-------|---------------|
-| **Admin** (owner) | Toàn quyền: dùng bot + `/allow` + `/block` + `/users` | `ADMIN_CHAT_ID` trong `.env` |
-| **Allowed user** | Dùng bot bình thường (tất cả commands + free text) | Được admin `/allow` hoặc define trong `ALLOWED_CHAT_IDS` |
-| **Unknown user** | Bị từ chối, nhận thông báo "Unauthorized" | Mọi người khác |
+| Role              | Quyền                                                 | Cách xác thực                                            |
+| ----------------- | ----------------------------------------------------- | -------------------------------------------------------- |
+| **Admin** (owner) | Toàn quyền: dùng bot + `/allow` + `/block` + `/users` | `ADMIN_CHAT_ID` trong `.env`                             |
+| **Allowed user**  | Dùng bot bình thường (tất cả commands + free text)    | Được admin `/allow` hoặc define trong `ALLOWED_CHAT_IDS` |
+| **Unknown user**  | Bị từ chối, nhận thông báo "Unauthorized"             | Mọi người khác                                           |
 
 #### Lưu trữ danh sách user
 
@@ -1235,8 +1348,8 @@ const adminChatId = process.env.ADMIN_CHAT_ID || "";
 const allowedChatIds = new Set<string>(
   (process.env.ALLOWED_CHAT_IDS || "")
     .split(",")
-    .map(id => id.trim())
-    .filter(Boolean)
+    .map((id) => id.trim())
+    .filter(Boolean),
 );
 
 // Admin is always allowed
@@ -1299,8 +1412,13 @@ bot.command("allow", async (ctx) => {
 
   // Notify the allowed user
   try {
-    await this.bot.api.sendMessage(targetId, "🎉 You have been granted access to the bot!");
-  } catch { /* user hasn't started the bot yet */ }
+    await this.bot.api.sendMessage(
+      targetId,
+      "🎉 You have been granted access to the bot!",
+    );
+  } catch {
+    /* user hasn't started the bot yet */
+  }
 });
 
 // /block <chat_id> — Remove user from whitelist
@@ -1316,9 +1434,9 @@ bot.command("block", async (ctx) => {
 // /users — List current whitelist
 bot.command("users", async (ctx) => {
   if (ctx.chat.id.toString() !== this.adminChatId) return;
-  const list = [...this.allowedChatIds].map(id =>
-    id === this.adminChatId ? `${id} (admin)` : id
-  ).join("\n");
+  const list = [...this.allowedChatIds]
+    .map((id) => (id === this.adminChatId ? `${id} (admin)` : id))
+    .join("\n");
   await ctx.reply(`📋 Allowed users:\n${list || "(empty)"}`);
 });
 ```
@@ -1338,19 +1456,19 @@ Admin gõ: /block 555666777 → Set.delete("555666777") → User bị chặn t�
 
 ### 9.2. Commands
 
-| Command | Mô tả | Claude nhận được |
-|---------|--------|-----------------|
-| `/start` | Welcome + hướng dẫn sử dụng | (hard-coded, không gọi Claude) |
-| `/news [topic]` | Tin tức mới nhất | "Hãy lấy tin tức mới nhất {topic} và phân tích" |
-| `/market` | Tổng quan thị trường | "Cho tôi tổng quan thị trường crypto + chứng khoán VN hôm nay" |
-| `/sentiment [crypto\|stock]` | Phân tích tâm lý | "Phân tích sentiment thị trường {market}" |
-| `/risk` | Đánh giá rủi ro vĩ mô | "Đánh giá rủi ro vĩ mô hiện tại, risk score" |
-| `/plan [crypto\|stock]` | Trading plan | "Đề xuất trading plan cho {market}" |
-| `/reset` | Xóa history | claude.clearHistory(chatId) |
-| `/allow <id>` | 🔒 Admin: thêm user | allowedChatIds.add(id) |
-| `/block <id>` | 🔒 Admin: xóa user | allowedChatIds.delete(id) |
-| `/users` | 🔒 Admin: xem whitelist | Liệt kê allowed IDs |
-| Free text | Hỏi đáp tự do | Gửi thẳng message tới Claude |
+| Command                      | Mô tả                       | Claude nhận được                                               |
+| ---------------------------- | --------------------------- | -------------------------------------------------------------- |
+| `/start`                     | Welcome + hướng dẫn sử dụng | (hard-coded, không gọi Claude)                                 |
+| `/news [topic]`              | Tin tức mới nhất            | "Hãy lấy tin tức mới nhất {topic} và phân tích"                |
+| `/market`                    | Tổng quan thị trường        | "Cho tôi tổng quan thị trường crypto + chứng khoán VN hôm nay" |
+| `/sentiment [crypto\|stock]` | Phân tích tâm lý            | "Phân tích sentiment thị trường {market}"                      |
+| `/risk`                      | Đánh giá rủi ro vĩ mô       | "Đánh giá rủi ro vĩ mô hiện tại, risk score"                   |
+| `/plan [crypto\|stock]`      | Trading plan                | "Đề xuất trading plan cho {market}"                            |
+| `/reset`                     | Xóa history                 | claude.clearHistory(chatId)                                    |
+| `/allow <id>`                | 🔒 Admin: thêm user         | allowedChatIds.add(id)                                         |
+| `/block <id>`                | 🔒 Admin: xóa user          | allowedChatIds.delete(id)                                      |
+| `/users`                     | 🔒 Admin: xem whitelist     | Liệt kê allowed IDs                                            |
+| Free text                    | Hỏi đáp tự do               | Gửi thẳng message tới Claude                                   |
 
 ### 9.3. Message handling
 
@@ -1425,26 +1543,45 @@ private async safeSendMarkdown(ctx: Context, text: string): Promise<void> {
 import "dotenv/config";
 import express from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createServer } from "./server";  // factory function instead of singleton
+import { createServer } from "./server"; // factory function instead of singleton
 import { McpClientWrapper } from "./mcp-client";
-import { LLMAssistant } from "./llm";
+import { LlmAssistant, type LlmConfig } from "./llm";
 import { TelegramNewsBot } from "./telegram";
 
+function requireEnv(name: string): string {
+  const val = process.env[name]?.trim();
+  if (!val) throw new Error(`Missing required env var: ${name}`);
+  return val;
+}
+
 async function main() {
-  // ---- 1. Start MCP Server ----
+  // ---- 1. Validate env & configure AI ----
+  const telegramToken = requireEnv("TELEGRAM_BOT_TOKEN");
+  const aiApiKey = requireEnv("AI_API_KEY");
+  const aiProvider = (process.env.AI_PROVIDER?.trim() ||
+    "openai") as LlmConfig["provider"];
+  const aiModel = process.env.AI_MODEL?.trim() || "gpt-4o";
+  const aiBaseUrl = process.env.AI_BASE_URL?.trim() || undefined;
+  const mcpServerUrl =
+    process.env.MCP_SERVER_URL ?? "http://localhost:3001/mcp";
+  const port = parseInt(process.env.PORT ?? "3001", 10);
+
+  console.log(`AI Provider: ${aiProvider}, Model: ${aiModel}`);
+
+  // ---- 2. Start MCP Server ----
   const app = express();
   app.use(express.json());
 
-  // Stateless mode: mỗi request tạo mới server instance
-  // để tránh lỗi khi gọi server.connect() nhiều lần trên cùng instance.
-  // Vì MCP Server là stateless (sessionIdGenerator: undefined),
-  // mỗi request tự chứa đủ context → không cần share state giữa requests.
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   app.post("/mcp", async (req, res) => {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
     });
-    const mcpServer = createServer();  // factory tạo McpServer mới mỗi request
+    const mcpServer = createServer();
     res.on("close", () => {
       transport.close();
       mcpServer.close();
@@ -1453,28 +1590,34 @@ async function main() {
     await transport.handleRequest(req, res, req.body);
   });
 
-  const port = parseInt(process.env.PORT || "3001");
-  const httpServer = app.listen(port, () => {
-    console.log(`MCP Server running on http://localhost:${port}/mcp`);
+  const httpServer = app.listen(port);
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once("listening", resolve);
+    httpServer.once("error", reject);
   });
+  console.log(`MCP Server running at http://localhost:${port}/mcp`);
 
-  // ---- 2. Initialize LLM + MCP Client ----
-  const mcpClient = new McpClientWrapper(process.env.MCP_SERVER_URL!);
-  const llm = new LLMAssistant(
-    process.env.LLM_PROVIDER!,
-    process.env.LLM_API_KEY!,
-    process.env.LLM_MODEL!,
-    mcpClient
+  // ---- 3. Initialize LLM + MCP Client ----
+  await new Promise((r) => setTimeout(r, 300));
+
+  const mcpClient = new McpClientWrapper(mcpServerUrl);
+  const llm = new LlmAssistant(
+    {
+      provider: aiProvider,
+      model: aiModel,
+      apiKey: aiApiKey,
+      baseUrl: aiBaseUrl,
+    },
+    mcpClient,
   );
   await llm.initialize();
-  console.log(`LLM Assistant initialized (${process.env.LLM_PROVIDER}/${process.env.LLM_MODEL})`);
+  console.log("LLM Assistant initialized");
 
-  // ---- 3. Start Telegram Bot ----
-  const bot = new TelegramNewsBot(process.env.TELEGRAM_BOT_TOKEN!, llm);
+  // ---- 4. Start Telegram Bot ----
+  const bot = new TelegramNewsBot(telegramToken, llm);
   await bot.start();
-  console.log("Telegram Bot started");
 
-  // ---- 4. Graceful Shutdown ----
+  // ---- 5. Graceful Shutdown ----
   const shutdown = async () => {
     console.log("Shutting down...");
     bot.stop();
@@ -1493,6 +1636,7 @@ main().catch((err) => {
 ```
 
 **Note on `server.ts` change:** Export `createServer()` factory function instead of a singleton:
+
 ```ts
 // server.ts — updated export
 export function createServer(): McpServer {
@@ -1503,6 +1647,7 @@ export function createServer(): McpServer {
 ```
 
 ### Additional package.json scripts
+
 ```json
 {
   "scripts": {
@@ -1533,6 +1678,7 @@ lib
 ```
 
 **Tại sao quan trọng:**
+
 - `node_modules/` — Docker sẽ `npm ci` lại, copy vào chỉ tốn thời gian (có thể hàng trăm MB)
 - `.env` — chứa secrets, KHÔNG được bake vào Docker image
 - `.git/` — lịch sử git có thể rất lớn, không cần trong container
@@ -1570,6 +1716,7 @@ CMD ["node", "lib/src/bot-main.js"]
 ```
 
 **Giải thích:**
+
 - **Multi-stage build**: Stage 1 có TypeScript compiler (devDeps), Stage 2 chỉ runtime
 - **node:22-alpine**: Image nhỏ (~180MB final vs ~900MB full node image)
 - **npm ci --omit=dev**: Chỉ install production dependencies
@@ -1602,6 +1749,7 @@ services:
 ```
 
 **Giải thích:**
+
 - `restart: unless-stopped` — tự restart nếu crash, trừ khi user stop thủ công
 - `env_file: .env` — load secrets từ file (không hard-code trong compose)
 - `logging` — giới hạn log size (10MB x 3 files = max 30MB)
@@ -1610,6 +1758,7 @@ services:
 ### 11.3. Deploy lên VPS
 
 #### Yêu cầu VPS
+
 - OS: Ubuntu 22.04+ / Debian 12+
 - RAM: >= 512MB (Node process ~100-200MB)
 - CPU: 1 vCPU đủ
@@ -1617,6 +1766,7 @@ services:
 - Chi phí: ~$5-10/tháng (DigitalOcean, Vultr, Hetzner...)
 
 #### Các bước deploy
+
 ```bash
 # 1. SSH vào VPS
 ssh user@your-vps-ip
@@ -1627,7 +1777,7 @@ cd McpTest
 
 # 3. Tạo .env từ template
 cp .env.example .env
-nano .env   # paste real TELEGRAM_BOT_TOKEN + ANTHROPIC_API_KEY
+nano .env   # paste real TELEGRAM_BOT_TOKEN + LLM_API_KEY
 
 # 4. Build & chạy
 docker compose up -d --build
@@ -1638,6 +1788,7 @@ docker compose logs -f     # xem logs real-time
 ```
 
 #### Quản lý hàng ngày
+
 ```bash
 # Xem logs
 docker compose logs -f news-bot
@@ -1659,26 +1810,27 @@ docker stats vnexpress-news-bot
 
 ## 12. Implementation Order (step-by-step)
 
-| # | Task | File(s) | Description |
-|---|------|---------|-------------|
-| 1 | Install deps | `package.json` | `npm install cheerio axios grammy ai @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google dotenv` |
-| 2 | Env setup | `.env.example`, `.env`, `.gitignore` | Template + secrets + gitignore (including LLM_PROVIDER/LLM_MODEL/access control vars) |
-| 3 | VnExpress crawler | `src/vnexpress.ts` | RSS parsing, article fetching, cache, search |
-| 4 | CoinGecko client | `src/crypto.ts` | Crypto prices, global data, trending |
-| 5 | KBS stock client | `src/stock.ts` | VN-Index, stock prices, foreign flow, history |
-| 6 | MCP Server | `src/server.ts` | Remove get_weather, export `createServer()` factory, register 8 tools + 4 prompts |
-| 7 | MCP Client | `src/mcp-client.ts` | Connect, listTools, callTool with ToolCallResult |
-| 8 | LLM wrapper | `src/llm.ts` | Provider factory, AI SDK generateText() loop, conversation history, retry logic |
-| 9 | Telegram bot | `src/telegram.ts` | Access control middleware + commands + Markdown-safe messaging |
-| 10 | Entry point | `src/bot-main.ts` | Single process: MCP Server (factory pattern) + Bot |
-| 11 | Docker | `.dockerignore`, `Dockerfile`, `docker-compose.yml` | dockerignore + multi-stage build + healthcheck |
-| 12 | Test & verify | — | Local dev → Docker → deploy VPS |
+| #   | Task              | File(s)                                             | Description                                                                                                      |
+| --- | ----------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1   | Install deps      | `package.json`                                      | `npm install cheerio axios grammy ai @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google dotenv`                     |
+| 2   | Env setup         | `.env.example`, `.env`, `.gitignore`                | Template + secrets + gitignore (including AI_PROVIDER/AI_MODEL/AI_BASE_URL/access control vars)                  |
+| 3   | VnExpress crawler | `src/vnexpress.ts`                                  | RSS parsing, article fetching, cache, search                                                                     |
+| 4   | CoinGecko client  | `src/crypto.ts`                                     | Crypto prices, global data, trending                                                                             |
+| 5   | KBS stock client  | `src/stock.ts`                                      | VN-Index, stock prices, foreign flow, history                                                                    |
+| 6   | MCP Server        | `src/server.ts`                                     | Remove get_weather, export `createServer()` factory, register 8 tools + 4 prompts                                |
+| 7   | MCP Client        | `src/mcp-client.ts`                                 | Connect, listTools, callTool with ToolCallResult (no Anthropic dependency)                                       |
+| 8   | LLM wrapper       | `src/llm.ts`                                        | Provider factory (LlmConfig), AI SDK generateText() loop, conversation history, retry logic, AI_BASE_URL support |
+| 9   | Telegram bot      | `src/telegram.ts`                                   | Access control middleware + commands + Markdown-safe messaging                                                   |
+| 10  | Entry point       | `src/bot-main.ts`                                   | Single process: MCP Server (factory pattern) + Bot                                                               |
+| 11  | Docker            | `.dockerignore`, `Dockerfile`, `docker-compose.yml` | dockerignore + multi-stage build + healthcheck                                                                   |
+| 12  | Test & verify     | —                                                   | Local dev → Docker → deploy VPS                                                                                  |
 
 ---
 
 ## 13. Verification Checklist
 
 ### MCP Server
+
 - [ ] `npm run dev:http` → server starts on http://localhost:3001/mcp
 - [ ] MCP Inspector: all 8 tools appear correctly
 - [ ] MCP Inspector: all 4 prompts appear correctly
@@ -1690,6 +1842,7 @@ docker stats vnexpress-news-bot
 - [ ] Tool error: invalid category or missing URL → returns `isError: true` with `[TOOL_ERROR]` prefix
 
 ### Tool Retry & Error Notification
+
 - [ ] Tool fails once → user receives interim message: "⚠️ Tool `X` failed (attempt 1/3). Reason: ... Retrying in 1s..."
 - [ ] Tool succeeds on retry (e.g. attempt 2) → user receives: "✅ Tool `X` succeeded on attempt 2."
 - [ ] Tool fails all 3 attempts → user receives: "❌ Tool `X` failed after 3 attempts. Reason: ... Please try again later."
@@ -1699,6 +1852,7 @@ docker stats vnexpress-news-bot
 - [ ] `chat()` called without `notifyUser` (e.g. in tests) → no crash (default no-op)
 
 ### Telegram Bot
+
 - [ ] `/start` → nhận welcome message + hướng dẫn
 - [ ] `/news` → Claude gọi tools → phân tích tin tức + quan điểm
 - [ ] `/market` → tổng quan crypto + chứng khoán VN
@@ -1713,6 +1867,7 @@ docker stats vnexpress-news-bot
 - [ ] Bot crash → tự khởi động lại (không mất conversation)
 
 ### Access Control
+
 - [ ] Unknown user gửi message → nhận "⛔ Unauthorized" + admin được notify
 - [ ] Admin `/allow <chat_id>` → user được thêm vào whitelist
 - [ ] Admin `/block <chat_id>` → user bị xóa khỏi whitelist
@@ -1721,6 +1876,7 @@ docker stats vnexpress-news-bot
 - [ ] Chỉ admin mới thấy/dùng được `/allow`, `/block`, `/users`
 
 ### Docker
+
 - [ ] `docker compose up -d --build` → build thành công
 - [ ] `docker compose ps` → STATUS: healthy
 - [ ] Container crash → tự restart (test: `docker kill vnexpress-news-bot`)

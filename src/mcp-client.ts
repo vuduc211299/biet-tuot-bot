@@ -1,6 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Tool } from "@anthropic-ai/sdk/resources/messages.js";
+
+export interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
 
 export interface ToolCallResult {
   success: boolean;
@@ -27,13 +32,13 @@ export class McpClientWrapper {
     console.log(`MCP Client connected to ${this.serverUrl}`);
   }
 
-  async getToolDefinitions(): Promise<Tool[]> {
+  async getToolDefinitions(): Promise<McpToolDefinition[]> {
     const { tools } = await this.client.listTools();
 
     return tools.map(t => ({
       name: t.name,
       description: t.description ?? "",
-      input_schema: (t.inputSchema as Tool["input_schema"]) ?? {
+      inputSchema: (t.inputSchema as Record<string, unknown>) ?? {
         type: "object",
         properties: {},
       },

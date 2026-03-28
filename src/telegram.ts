@@ -1,5 +1,5 @@
 import { Bot, Context } from "grammy";
-import { ClaudeAssistant } from "./claude.js";
+import { LlmAssistant } from "./llm.js";
 import {
   buildWelcomeMessage,
   buildNewsPrompt,
@@ -47,13 +47,13 @@ function splitByParagraphs(text: string, maxLen: number): string[] {
 
 export class TelegramNewsBot {
   private bot: Bot;
-  private claude: ClaudeAssistant;
+  private llm: LlmAssistant;
   private adminChatId: string;
   private allowedChatIds: Set<string>;
 
-  constructor(token: string, claude: ClaudeAssistant) {
+  constructor(token: string, llm: LlmAssistant) {
     this.bot = new Bot(token);
-    this.claude = claude;
+    this.llm = llm;
     this.adminChatId = process.env.ADMIN_CHAT_ID?.trim() ?? "";
 
     // Initialize whitelist from env
@@ -145,7 +145,7 @@ export class TelegramNewsBot {
     };
 
     try {
-      const response = await this.claude.chat(chatId, message, notifyUser);
+      const response = await this.llm.chat(chatId, message, notifyUser);
       clearInterval(typingInterval);
       await this.sendLongMessage(ctx, response);
     } catch (err) {
@@ -193,14 +193,14 @@ export class TelegramNewsBot {
     // /reset
     this.bot.command("reset", async ctx => {
       const chatId = ctx.chat.id.toString();
-      this.claude.clearHistory(chatId);
+      this.llm.clearHistory(chatId);
       await ctx.reply("✅ Conversation history cleared. Starting fresh!");
     });
 
     // /status (info about bot)
     this.bot.command("status", async ctx => {
       const chatId = ctx.chat.id.toString();
-      const histLen = this.claude.getHistoryLength(chatId);
+      const histLen = this.llm.getHistoryLength(chatId);
       await ctx.reply(
         `🤖 *Bot Status*\n` +
         `History: ${histLen} messages\n` +
