@@ -9,7 +9,7 @@ import {
   fetchArticleContent,
   searchArticles,
 } from "./vnexpress.js";
-import { getCryptoOverview, fetchCryptoPrices } from "./crypto.js";
+import { getCryptoOverview, fetchCryptoPrices, getCryptoTechnical } from "./crypto.js";
 import {
   getVNStockOverview,
   fetchStockPrice,
@@ -173,6 +173,31 @@ export function createServer(): McpServer {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { content: [{ type: "text", text: `[TOOL_ERROR] crypto_get_prices: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "crypto_get_technical",
+    {
+      title: "Crypto Technical Analysis",
+      description:
+        "Get comprehensive technical analysis for a specific cryptocurrency: RSI-14, SMA-50, SMA-200, " +
+        "EMA-12, EMA-26, MACD (line/signal/histogram), ATH/ATL with dates, multi-timeframe price changes " +
+        "(1h/24h/7d/30d/1y), and supply data. Use this for any crypto deep analysis — it replaces multiple " +
+        "separate calls. Common coin IDs: bitcoin, ethereum, solana, ripple, cardano, binancecoin, dogecoin, " +
+        "tether, usd-coin, shiba-inu, avalanche-2, chainlink, polkadot, tron.",
+      inputSchema: {
+        coin: z.string().describe("CoinGecko coin ID, e.g. 'bitcoin', 'ethereum', 'solana'"),
+      },
+    },
+    async ({ coin }) => {
+      try {
+        const technical = await getCryptoTechnical(coin.trim().toLowerCase());
+        return { content: [{ type: "text", text: JSON.stringify(technical, null, 2) }] };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text", text: `[TOOL_ERROR] crypto_get_technical: ${msg}` }], isError: true };
       }
     }
   );

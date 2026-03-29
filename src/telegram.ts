@@ -28,6 +28,23 @@ function detectMode(text: string): LlmMode {
   return "chat";
 }
 
+/**
+ * Convert LLM markdown to Telegram-compatible legacy Markdown.
+ * Telegram only supports *bold*, _italic_, `code`, and [text](url).
+ * It does NOT support ## headers, **bold**, or --- dividers.
+ */
+function sanitizeForTelegramMarkdown(text: string): string {
+  return text
+    // **bold** → *bold*  (must run before header replacement)
+    .replace(/\*\*(.+?)\*\*/gs, "*$1*")
+    // ## Header / ### Header / #### Header → *Header*
+    .replace(/^#{1,6}\s+(.+)$/gm, "*$1*")
+    // --- or *** dividers → blank line
+    .replace(/^[-*]{3,}$/gm, "")
+    // Collapse 3+ consecutive blank lines to 2
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 function splitByParagraphs(text: string, maxLen: number): string[] {
   if (text.length <= maxLen) return [text];
 
@@ -143,7 +160,8 @@ export class TelegramNewsBot {
   }
 
   private async sendLongMessage(ctx: Context, text: string): Promise<void> {
-    const chunks = splitByParagraphs(text, 4096);
+    const sanitized = sanitizeForTelegramMarkdown(text);
+    const chunks = splitByParagraphs(sanitized, 4096);
     for (const chunk of chunks) {
       await this.safeSendMarkdown(ctx, chunk);
     }
