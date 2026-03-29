@@ -24,7 +24,8 @@ RESPONSE FORMAT:
 - For crypto/stock data with no articles, write: _Nguồn: CoinGecko_ or _Nguồn: KBS Securities_
 - Only list sources actually used — do not fabricate links
 
-DISCLAIMER: Data only, not investment advice.`;
+DISCLAIMER: All analysis represents personal opinions, not investment advice.
+When uncertain, clearly state "I do not have enough data to conclude."`;
 
 // Reasoner mode: deep analysis, multi-angle, independent opinion
 export const REASONER_SYSTEM_PROMPT = `You are a professional, independent financial and current affairs analyst.

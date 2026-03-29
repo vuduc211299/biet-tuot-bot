@@ -13,13 +13,42 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { McpClientWrapper, type McpToolDefinition } from "./mcp-client.js";
 import { CHAT_SYSTEM_PROMPT, REASONER_SYSTEM_PROMPT } from "./prompts/index.js";
 
-const MAX_HISTORY = 20;
+const MAX_HISTORY_CHAT = 20;
+const MAX_HISTORY_REASONER = 80;
 const MAX_STEPS = 10;
 const TOOL_MAX_RETRIES = 3;
 const TOOL_RETRY_DELAY_MS = 1000;
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+const GENERATE_MAX_RETRIES = 2;
+const GENERATE_RETRY_BASE_DELAY_MS = 2000;
+
+/** Returns true for transient network errors that are safe to retry. */
+function isTransientError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const cause = (error as Error & { cause?: { code?: string } }).cause;
+  const transientCodes = ["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "ECONNREFUSED", "UND_ERR_SOCKET"];
+  if (cause?.code && transientCodes.includes(cause.code)) return true;
+  const msg = error.message.toLowerCase();
+  return msg.includes("econnreset") || msg.includes("etimedout") || msg.includes("und_err_socket");
+}
+
+/**
+ * Trims history to at most maxLen messages.
+ * Always ensures the first kept message is never role="tool",
+ * which would cause a 400 error (orphan tool message after a cut).
+ */
+function trimHistory(history: ModelMessage[], maxLen: number): ModelMessage[] {
+  if (history.length <= maxLen) return history;
+  const sliced = history.slice(history.length - maxLen);
+  let start = 0;
+  while (start < sliced.length && sliced[start].role === "tool") {
+    start++;
+  }
+  return start > 0 ? sliced.slice(start) : sliced;
+}
 
 export type LlmMode = "chat" | "reasoner";
 
@@ -168,27 +197,40 @@ export class LlmAssistant {
     const activeModelName = mode === "reasoner" && this.reasonerModel
       ? this.reasonerModelName!
       : this.chatModelName;
-    const effectiveMode: LlmMode = mode === "reasoner" && this.reasonerModel
-      ? "reasoner"
-      : "chat";
-    const systemPrompt = effectiveMode === "reasoner"
+    const systemPrompt = mode === "reasoner"
       ? REASONER_SYSTEM_PROMPT
       : CHAT_SYSTEM_PROMPT;
 
-    console.log(`[LLM] chatId=${chatId} | mode=${effectiveMode} | model=${activeModelName}`);
+    console.log(`[LLM] chatId=${chatId} | mode=${mode} | model=${activeModelName}`);
 
     const history = this.conversations.get(chatId) ?? [];
     history.push({ role: "user", content: userMessage });
 
     const tools = this.buildTools(notifyUser);
 
-    const result = await generateText({
-      model: activeModel,
-      system: systemPrompt,
-      messages: history,
-      tools,
-      stopWhen: stepCountIs(MAX_STEPS),
-    });
+    let result!: Awaited<ReturnType<typeof generateText>>;
+    const maxAttempts = GENERATE_MAX_RETRIES + 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        result = await generateText({
+          model: activeModel,
+          system: systemPrompt,
+          messages: history,
+          tools,
+          stopWhen: stepCountIs(MAX_STEPS),
+        });
+        break;
+      } catch (err) {
+        if (attempt < maxAttempts && isTransientError(err)) {
+          const retryDelay = GENERATE_RETRY_BASE_DELAY_MS * attempt;
+          console.warn(`[LLM] Transient network error on attempt ${attempt}/${maxAttempts}, retrying in ${retryDelay}ms`, err);
+          await notifyUser(`⚠️ Connection issue, retrying... (${attempt}/${maxAttempts - 1})`);
+          await delay(retryDelay);
+        } else {
+          throw err;
+        }
+      }
+    }
 
     const finalText =
       result.text || "I was unable to generate a response. Please try again.";
@@ -196,12 +238,11 @@ export class LlmAssistant {
     // Append all response messages (assistant + tool calls/results) to history
     history.push(...(result.response.messages as ModelMessage[]));
 
-    // Trim history to prevent token bloat
-    const trimmed =
-      history.length > MAX_HISTORY
-        ? history.slice(history.length - MAX_HISTORY)
-        : history;
-    this.conversations.set(chatId, trimmed);
+    // Trim history to prevent token bloat, never leaving orphan tool messages
+    const maxHistory = mode === "reasoner" ? MAX_HISTORY_REASONER : MAX_HISTORY_CHAT;
+    this.conversations.set(chatId, trimHistory(history, maxHistory));
+
+    console.log(`[history] chatId=${chatId} | messages=${history.length}}`);
 
     return finalText;
   }
