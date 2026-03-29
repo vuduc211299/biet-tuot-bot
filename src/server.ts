@@ -2,8 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   registerAnalyzeNewsPrompt,
-  registerMarketSentimentPrompt,
-  registerRiskAssessmentPrompt,
   registerTradingPlanPrompt,
 } from "./prompts/index.js";
 import {
@@ -254,8 +252,6 @@ export function createServer(): McpServer {
   // ============================================================
 
   registerAnalyzeNewsPrompt(server);
-  registerMarketSentimentPrompt(server);
-  registerRiskAssessmentPrompt(server);
   registerTradingPlanPrompt(server);
 
   return server;

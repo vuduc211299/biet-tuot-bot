@@ -24,7 +24,17 @@ async function main(): Promise<void> {
   const mcpServerUrl = process.env.MCP_SERVER_URL ?? "http://localhost:3001/mcp";
   const port = parseInt(process.env.PORT ?? "3001", 10);
 
+  // Optional reasoner model — used for /analysis and deep-analysis queries
+  const aiReasonerModel = process.env.AI_REASONER_MODEL?.trim() || undefined;
+  const aiReasonerApiKey = process.env.AI_REASONER_API_KEY?.trim() || undefined;
+  const aiReasonerBaseUrl = process.env.AI_REASONER_BASE_URL?.trim() || undefined;
+
   console.log(`AI Provider: ${aiProvider}, Model: ${aiModel}`);
+  if (aiReasonerModel) {
+    console.log(`Reasoner Model: ${aiReasonerModel}${aiReasonerBaseUrl ? ` (${aiReasonerBaseUrl})` : ""}`);
+  } else {
+    console.log("Reasoner Model: not configured (fallback to chat model)");
+  }
 
   // ---- 2. Start MCP Server (Express HTTP) ----
   const app = express();
@@ -75,7 +85,10 @@ async function main(): Promise<void> {
   const mcpClient = new McpClientWrapper(mcpServerUrl);
   const llm = new LlmAssistant(
     { provider: aiProvider, model: aiModel, apiKey: aiApiKey, baseUrl: aiBaseUrl },
-    mcpClient
+    mcpClient,
+    aiReasonerModel
+      ? { model: aiReasonerModel, apiKey: aiReasonerApiKey, baseUrl: aiReasonerBaseUrl }
+      : undefined
   );
   await llm.initialize();
   console.log("LLM Assistant initialized");

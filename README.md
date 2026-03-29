@@ -120,13 +120,15 @@ ALLOWED_CHAT_IDS=123456789
 
 Sửa 3 biến `AI_PROVIDER`, `AI_MODEL`, `AI_API_KEY` trong `.env`:
 
-| Provider        | AI_PROVIDER | AI_MODEL                   | AI_BASE_URL                      |
-| --------------- | ----------- | -------------------------- | -------------------------------- |
-| OpenAI          | `openai`    | `gpt-4o`                   | _(để trống)_                     |
-| Anthropic       | `anthropic` | `claude-sonnet-4-20250514` | _(để trống)_                     |
-| Google Gemini   | `google`    | `gemini-2.0-flash`         | _(để trống)_                     |
-| Groq (miễn phí) | `openai`    | `llama-3.1-70b-versatile`  | `https://api.groq.com/openai/v1` |
-| Ollama (local)  | `openai`    | `llama3`                   | `http://localhost:11434/v1`      |
+| Provider                 | AI_PROVIDER | AI_MODEL                   | AI_BASE_URL                      |
+| ------------------------ | ----------- | -------------------------- | -------------------------------- |
+| OpenAI                   | `openai`    | `gpt-4o`                   | _(để trống)_                     |
+| Anthropic                | `anthropic` | `claude-sonnet-4-20250514` | _(để trống)_                     |
+| Google Gemini            | `google`    | `gemini-2.0-flash`         | _(để trống)_                     |
+| DeepSeek                 | `openai`    | `deepseek-chat`            | `https://api.deepseek.com`       |
+| DeepSeek V3.2 + Thinking | `openai`    | `deepseek-reasoner`        | `https://api.deepseek.com`       |
+| Groq (miễn phí)          | `openai`    | `llama-3.1-70b-versatile`  | `https://api.groq.com/openai/v1` |
+| Ollama (local)           | `openai`    | `llama3`                   | `http://localhost:11434/v1`      |
 
 ### Bước 4 — Build và chạy
 

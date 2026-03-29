@@ -11,7 +11,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { McpClientWrapper, type McpToolDefinition } from "./mcp-client.js";
-import { SYSTEM_PROMPT } from "./prompts/index.js";
+import { CHAT_SYSTEM_PROMPT, REASONER_SYSTEM_PROMPT } from "./prompts/index.js";
 
 const MAX_HISTORY = 20;
 const MAX_STEPS = 10;
@@ -21,10 +21,22 @@ const TOOL_RETRY_DELAY_MS = 1000;
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+export type LlmMode = "chat" | "reasoner";
+
 export interface LlmConfig {
   provider: "openai" | "anthropic" | "google";
   model: string;
   apiKey: string;
+  baseUrl?: string;
+}
+
+export interface LlmReasonerConfig {
+  model: string;
+  /** Defaults to "openai" (OpenAI-compatible, works with DeepSeek etc.) */
+  provider?: LlmConfig["provider"];
+  /** Falls back to main LlmConfig.apiKey if omitted */
+  apiKey?: string;
+  /** Falls back to main LlmConfig.baseUrl if omitted */
   baseUrl?: string;
 }
 
@@ -46,25 +58,42 @@ function createModel(config: LlmConfig): LanguageModel {
     }
     case "openai":
     default: {
-      // Also works with any OpenAI-compatible API (Ollama, Groq, Together, etc.)
+      // Also works with any OpenAI-compatible API (Ollama, Groq, Together, DeepSeek, etc.)
+      // Use .chat() to force Chat Completions API (/chat/completions) instead of
+      // the Responses API (/responses) which is the new default in @ai-sdk/openai@3.x
+      // but not supported by OpenAI-compatible providers (DeepSeek, Groq, Ollama, etc.)
       const provider = createOpenAI({
         apiKey: config.apiKey,
         ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
       });
-      return provider(config.model);
+      return provider.chat(config.model);
     }
   }
 }
 
 export class LlmAssistant {
-  private model: LanguageModel;
+  private chatModel: LanguageModel;
+  private chatModelName: string;
+  private reasonerModel: LanguageModel | null = null;
+  private reasonerModelName: string | null = null;
   private mcpClient: McpClientWrapper;
   private mcpToolDefs: McpToolDefinition[] = [];
   private conversations = new Map<string, ModelMessage[]>();
 
-  constructor(config: LlmConfig, mcpClient: McpClientWrapper) {
-    this.model = createModel(config);
+  constructor(config: LlmConfig, mcpClient: McpClientWrapper, reasonerConfig?: LlmReasonerConfig) {
+    this.chatModel = createModel(config);
+    this.chatModelName = config.model;
     this.mcpClient = mcpClient;
+
+    if (reasonerConfig) {
+      this.reasonerModel = createModel({
+        provider: reasonerConfig.provider ?? "openai",
+        model: reasonerConfig.model,
+        apiKey: reasonerConfig.apiKey ?? config.apiKey,
+        baseUrl: reasonerConfig.baseUrl ?? config.baseUrl,
+      });
+      this.reasonerModelName = reasonerConfig.model;
+    }
   }
 
   async initialize(): Promise<void> {
@@ -129,16 +158,33 @@ export class LlmAssistant {
   async chat(
     chatId: string,
     userMessage: string,
-    notifyUser: (msg: string) => Promise<void> = async () => { }
+    notifyUser: (msg: string) => Promise<void> = async () => { },
+    mode: LlmMode = "chat"
   ): Promise<string> {
+    // Resolve active model — fall back to chat model if reasoner not configured
+    const activeModel = mode === "reasoner" && this.reasonerModel
+      ? this.reasonerModel
+      : this.chatModel;
+    const activeModelName = mode === "reasoner" && this.reasonerModel
+      ? this.reasonerModelName!
+      : this.chatModelName;
+    const effectiveMode: LlmMode = mode === "reasoner" && this.reasonerModel
+      ? "reasoner"
+      : "chat";
+    const systemPrompt = effectiveMode === "reasoner"
+      ? REASONER_SYSTEM_PROMPT
+      : CHAT_SYSTEM_PROMPT;
+
+    console.log(`[LLM] chatId=${chatId} | mode=${effectiveMode} | model=${activeModelName}`);
+
     const history = this.conversations.get(chatId) ?? [];
     history.push({ role: "user", content: userMessage });
 
     const tools = this.buildTools(notifyUser);
 
     const result = await generateText({
-      model: this.model,
-      system: SYSTEM_PROMPT,
+      model: activeModel,
+      system: systemPrompt,
       messages: history,
       tools,
       stopWhen: stepCountIs(MAX_STEPS),
@@ -166,5 +212,9 @@ export class LlmAssistant {
 
   getHistoryLength(chatId: string): number {
     return this.conversations.get(chatId)?.length ?? 0;
+  }
+
+  getModelInfo(): { chat: string; reasoner: string | null } {
+    return { chat: this.chatModelName, reasoner: this.reasonerModelName };
   }
 }

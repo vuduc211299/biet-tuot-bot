@@ -1,13 +1,32 @@
 import { Bot, Context } from "grammy";
-import { LlmAssistant } from "./llm.js";
+import { LlmAssistant, type LlmMode } from "./llm.js";
 import {
   buildWelcomeMessage,
   buildNewsPrompt,
   MARKET_PROMPT,
-  buildSentimentPrompt,
-  RISK_PROMPT,
   buildPlanPrompt,
+  buildAnalysisPrompt,
 } from "./prompts/index.js";
+
+// Keywords that trigger reasoner mode for free-text messages
+const REASONER_KEYWORDS = [
+  // Vietnamese
+  "phân tích", "đánh giá", "tại sao", "vì sao", "nhận định",
+  "dự báo", "so sánh", "ảnh hưởng", "nguyên nhân", "xu hướng", "rủi ro",
+  // English
+  "analyze", "analysis", "why", "assess", "evaluate", "forecast",
+  "compare", "impact", "risk", "trend",
+];
+
+function detectMode(text: string): LlmMode {
+  const lower = text.toLowerCase();
+  const matched = REASONER_KEYWORDS.find(kw => lower.includes(kw));
+  if (matched) {
+    console.log(`[Mode] Auto-detected reasoner mode (keyword: "${matched}")`);
+    return "reasoner";
+  }
+  return "chat";
+}
 
 function splitByParagraphs(text: string, maxLen: number): string[] {
   if (text.length <= maxLen) return [text];
@@ -130,7 +149,7 @@ export class TelegramNewsBot {
     }
   }
 
-  private async handleUserMessage(ctx: Context, message: string): Promise<void> {
+  private async handleUserMessage(ctx: Context, message: string, mode: LlmMode = "chat"): Promise<void> {
     const chatId = ctx.chat!.id.toString();
 
     // Typing indicator loop
@@ -145,7 +164,7 @@ export class TelegramNewsBot {
     };
 
     try {
-      const response = await this.llm.chat(chatId, message, notifyUser);
+      const response = await this.llm.chat(chatId, message, notifyUser, mode);
       clearInterval(typingInterval);
       await this.sendLongMessage(ctx, response);
     } catch (err) {
@@ -173,21 +192,16 @@ export class TelegramNewsBot {
       await this.handleUserMessage(ctx, MARKET_PROMPT);
     });
 
-    // /sentiment [crypto|stock|all]
-    this.bot.command("sentiment", async ctx => {
-      const market = ctx.match?.trim() || "all";
-      await this.handleUserMessage(ctx, buildSentimentPrompt(market));
-    });
-
-    // /risk
-    this.bot.command("risk", async ctx => {
-      await this.handleUserMessage(ctx, RISK_PROMPT);
-    });
-
     // /plan [crypto|stock]
     this.bot.command("plan", async ctx => {
       const market = ctx.match?.trim() || "crypto";
       await this.handleUserMessage(ctx, buildPlanPrompt(market));
+    });
+
+    // /analysis [topic] — deep analysis, always uses reasoner mode
+    this.bot.command("analysis", async ctx => {
+      const topic = ctx.match?.trim();
+      await this.handleUserMessage(ctx, buildAnalysisPrompt(topic), "reasoner");
     });
 
     // /reset
@@ -201,10 +215,16 @@ export class TelegramNewsBot {
     this.bot.command("status", async ctx => {
       const chatId = ctx.chat.id.toString();
       const histLen = this.llm.getHistoryLength(chatId);
+      const modelInfo = this.llm.getModelInfo();
+      const reasonerLine = modelInfo.reasoner
+        ? `Reasoner: \`${modelInfo.reasoner}\``
+        : `Reasoner: _(not configured, fallback to chat model)_`;
       await ctx.reply(
         `🤖 *Bot Status*\n` +
         `History: ${histLen} messages\n` +
-        `Chat ID: \`${chatId}\``,
+        `Chat ID: \`${chatId}\`\n` +
+        `Chat model: \`${modelInfo.chat}\`\n` +
+        `${reasonerLine}`,
         { parse_mode: "Markdown" }
       );
     });
@@ -247,7 +267,8 @@ export class TelegramNewsBot {
     this.bot.on("message:text", async ctx => {
       const text = ctx.message.text;
       if (text.startsWith("/")) return; // already handled by commands
-      await this.handleUserMessage(ctx, text);
+      const mode = detectMode(text);
+      await this.handleUserMessage(ctx, text, mode);
     });
   }
 
@@ -259,9 +280,8 @@ export class TelegramNewsBot {
     await this.bot.api.setMyCommands([
       { command: "news", description: "Latest news + analysis" },
       { command: "market", description: "Crypto + VN stock overview" },
-      { command: "sentiment", description: "Market sentiment [crypto|stock]" },
-      { command: "risk", description: "Macro risk assessment" },
       { command: "plan", description: "Trading plan [crypto|stock]" },
+      { command: "analysis", description: "🧠 Deep analysis — reasoner mode [topic]" },
       { command: "reset", description: "Clear conversation history" },
       { command: "status", description: "Bot status & chat info" },
     ]);
