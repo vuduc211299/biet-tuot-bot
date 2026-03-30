@@ -89,20 +89,27 @@ export interface TechnicalIndicators {
     signalLine: number | null;
     histogram: number | null;
   };
-  ath: { price: number; date: string } | null;
-  atl: { price: number; date: string } | null;
   ohlcv: OHLCVBar[];
+}
+
+export interface StockATHATL {
+  ath: { price: number; date: string };
+  atl: { price: number; date: string };
+  dataRange: { from: string; to: string; bars: number };
 }
 
 // ============================================================
 // CACHE
 // ============================================================
 
+const CACHE_TTL_ATHALT = 60 * 60 * 1000; // 1 hour — ATH/ATL rarely changes
+
 const cache = {
   ohlcv: new Map<string, { data: OHLCVBar[]; timestamp: number }>(),
   index: new Map<string, { data: IndexBar[]; timestamp: number }>(),
   priceBoard: new Map<string, { data: PriceBoardEntry[]; timestamp: number }>(),
   profile: new Map<string, { data: CompanyProfile; timestamp: number }>(),
+  athAtl: new Map<string, { data: StockATHATL; timestamp: number }>(),
   topVolume: null as { data: RankingEntry[]; timestamp: number } | null,
   foreignFlow: null as { data: { topBuy: RankingEntry[]; topSell: RankingEntry[] }; timestamp: number } | null,
 };
@@ -175,29 +182,12 @@ export function computeTechnicals(symbol: string, ohlcv: OHLCVBar[]): TechnicalI
   const ema12Full = emaFull(closes, 12);
   if (ema12Full.length > 0 && ema26Full.length > 0) {
     macdLine = ema12Full[ema12Full.length - 1] - ema26Full[ema26Full.length - 1];
-    // Build MACD series for signal line: align both EMA-12 and EMA-26 series
-    // ema12Full starts after index 11, ema26Full starts after index 25
-    // offset = 26 - 12 = 14 bars difference in starting index
     const offset = 26 - 12;
     const macdSeries = ema26Full.map((v26, i) => ema12Full[i + offset] - v26);
     if (macdSeries.length >= 9) {
       signalLine = ema(macdSeries, 9);
       if (signalLine !== null) histogram = macdLine - signalLine;
     }
-  }
-
-  // ATH/ATL from available OHLCV range
-  let ath: { price: number; date: string } | null = null;
-  let atl: { price: number; date: string } | null = null;
-  if (sorted.length > 0) {
-    let athBar = sorted[0];
-    let atlBar = sorted[0];
-    for (const bar of sorted) {
-      if (bar.high > athBar.high) athBar = bar;
-      if (bar.low < atlBar.low || atlBar.low === 0) atlBar = bar;
-    }
-    ath = { price: athBar.high, date: athBar.date };
-    atl = { price: atlBar.low, date: atlBar.date };
   }
 
   return {
@@ -212,10 +202,57 @@ export function computeTechnicals(symbol: string, ohlcv: OHLCVBar[]): TechnicalI
     ema26: ema(closes, 26),
     rsi14: rsi14(closes),
     macd: { macdLine, signalLine, histogram },
-    ath,
-    atl,
     ohlcv: sorted.slice(-30),
   };
+}
+
+// ============================================================
+// ATH/ATL — fetches ALL available history from KBS (since HOSE inception 2000)
+// ============================================================
+
+export async function fetchStockATHATL(symbol: string): Promise<StockATHATL | null> {
+  const sym = symbol.toUpperCase();
+  const cached = cache.athAtl.get(sym);
+  if (cached && isFresh(cached.timestamp, CACHE_TTL_ATHALT)) return cached.data;
+
+  try {
+    // Fetch from 01-01-2000 (HOSE inception) to today — covers ALL VN stock history
+    const edate = toKBSDate(new Date());
+    const sdate = "01-01-2000";
+    const res = await http.get(`${BASE_IIS}/stocks/${sym}/data_day`, {
+      params: { sdate, edate },
+    });
+    const raw = res.data?.data_day ?? res.data?.data ?? res.data ?? [];
+    const bars: OHLCVBar[] = (Array.isArray(raw) ? raw : []).map((item: any) => ({
+      date: String(item.t ?? "").split(" ")[0],
+      open: N(item.o),
+      high: N(item.h),
+      low: N(item.l),
+      close: N(item.c),
+      volume: N(item.v),
+    })).filter((b: OHLCVBar) => b.date && b.close > 0);
+
+    if (bars.length === 0) return null;
+
+    const sorted = bars.sort((a, b) => a.date.localeCompare(b.date));
+    let athBar = sorted[0];
+    let atlBar = sorted[0];
+    for (const bar of sorted) {
+      if (bar.high > athBar.high) athBar = bar;
+      if (bar.low > 0 && (bar.low < atlBar.low || atlBar.low === 0)) atlBar = bar;
+    }
+
+    const result: StockATHATL = {
+      ath: { price: athBar.high, date: athBar.date },
+      atl: { price: atlBar.low, date: atlBar.date },
+      dataRange: { from: sorted[0].date, to: sorted[sorted.length - 1].date, bars: sorted.length },
+    };
+
+    cache.athAtl.set(sym, { data: result, timestamp: Date.now() });
+    return result;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================

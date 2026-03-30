@@ -14,6 +14,7 @@ import {
   fetchTopVolume,
   fetchForeignRanking,
   computeTechnicals,
+  fetchStockATHATL,
 } from "./stock.js";
 import {
   fetchCompanyNews,
@@ -438,23 +439,29 @@ export function createServer(): McpServer {
     {
       title: "VN Stock Technical Analysis",
       description:
-        "Get comprehensive technical analysis for a Vietnam stock computed from KBS OHLCV data: " +
-        "SMA-20/50/200, EMA-12/26, RSI-14, MACD (line/signal/histogram), ATH/ATL (high/low within period), " +
-        "latest close/date, and last 30 OHLCV bars. Use days=200 or more for SMA-200 to be meaningful. " +
-        "Use days=365 for 1-year ATH/ATL.",
+        "Get comprehensive technical analysis for a Vietnam stock: " +
+        "SMA-20/50/200, EMA-12/26, RSI-14, MACD (line/signal/histogram), " +
+        "ATH/ATL (true all-time high/low from full listing history since 2000), " +
+        "latest close/date, and last 30 OHLCV bars.",
       inputSchema: {
         symbol: z.string().describe("Stock ticker symbol, e.g. 'VNM', 'FPT'"),
         days: z.number().min(20).max(365).optional()
-          .describe("Days of OHLCV data to fetch for indicator calculation. Default: 200"),
+          .describe("Days of OHLCV data for indicator calculation (SMA/EMA/RSI/MACD). Default: 200. ATH/ATL always uses full history."),
       },
     },
     async ({ symbol, days }) => {
       try {
-        const ohlcv = await fetchStockOHLCV(symbol.toUpperCase(), days ?? 200);
+        const sym = symbol.toUpperCase();
+        // Fetch indicator OHLCV + full-history ATH/ATL in parallel
+        const [ohlcv, athAtl] = await Promise.all([
+          fetchStockOHLCV(sym, days ?? 200),
+          fetchStockATHATL(sym),
+        ]);
         if (ohlcv.length === 0) {
-          return { content: [{ type: "text", text: `No OHLCV data for ${symbol.toUpperCase()}.` }] };
+          return { content: [{ type: "text", text: `No OHLCV data for ${sym}.` }] };
         }
-        const result = computeTechnicals(symbol.toUpperCase(), ohlcv);
+        const technicals = computeTechnicals(sym, ohlcv);
+        const result = { ...technicals, ...(athAtl ?? { ath: null, atl: null, dataRange: null }) };
         logTool("stock_get_technical", { symbol, days }, result);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err) {
