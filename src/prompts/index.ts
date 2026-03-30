@@ -6,5 +6,4 @@ export {
   buildPlanPrompt,
   buildAnalysisPrompt,
 } from "./commands.js";
-export { registerAnalyzeNewsPrompt } from "./mcp/analyze-news.js";
-export { registerTradingPlanPrompt } from "./mcp/trading-plan.js";
+

@@ -1,59 +1,110 @@
 import axios from "axios";
 
-const BASE_IIS = "https://kbbuddywts.kbsec.com.vn/iis-server";
+const BASE_IIS = "https://kbbuddywts.kbsec.com.vn/iis-server/investment";
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_REALTIME = 60 * 1000; // 1 minute for price board
+const CACHE_TTL_PROFILE = 60 * 60 * 1000; // 1 hour for company profile
 
-export interface MarketIndex {
-  indexName: string;
-  indexValue: number;
-  change: number;
-  changePercent: number;
-  totalVolume: number;
-  totalValue: number;
+// KBS prices are in raw VND (e.g. 60600 = 60,600 VND). No division needed.
+const N = (v: any): number => parseFloat(v ?? 0);
+
+// Format Date as DD-MM-YYYY (KBS param format)
+function toKBSDate(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}-${mm}-${d.getFullYear()}`;
 }
 
-export interface StockPrice {
-  symbol: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  volume: number;
-  high: number;
-  low: number;
-  foreignBuy: number;
-  foreignSell: number;
-}
+// ============================================================
+// INTERFACES
+// ============================================================
 
-export interface TopStock {
-  symbol: string;
-  volume: number;
-  price: number;
-  changePercent: number;
-}
-
-export interface ForeignFlow {
-  buyValue: number;
-  sellValue: number;
-  netValue: number;
-  topBuy: Array<{ symbol: string; value: number }>;
-  topSell: Array<{ symbol: string; value: number }>;
-}
-
-export interface StockHistory {
+export interface OHLCVBar {
   date: string;
-  close: number;
   open: number;
   high: number;
   low: number;
+  close: number;
   volume: number;
 }
 
+export interface IndexBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface PriceBoardEntry {
+  symbol: string;
+  price: number;
+  open: number;
+  high: number;
+  low: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  foreignBuy: number;
+  foreignSell: number;
+  ceiling: number;
+  floor: number;
+  ref: number;
+}
+
+export interface CompanyProfile {
+  symbol: string;
+  companyName: string;
+  exchange: string;
+  industry: string;
+  website: string;
+  address: string;
+  description: string;
+  listedDate: string;
+  listedShares: number;
+  charteredCapital: number;
+}
+
+export interface RankingEntry {
+  symbol: string;
+  value: number;
+  price: number;
+  changePercent: number;
+}
+
+export interface TechnicalIndicators {
+  symbol: string;
+  period: number;
+  latestClose: number;
+  latestDate: string;
+  sma20: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  ema12: number | null;
+  ema26: number | null;
+  rsi14: number | null;
+  macd: {
+    macdLine: number | null;
+    signalLine: number | null;
+    histogram: number | null;
+  };
+  ath: { price: number; date: string } | null;
+  atl: { price: number; date: string } | null;
+  ohlcv: OHLCVBar[];
+}
+
+// ============================================================
+// CACHE
+// ============================================================
+
 const cache = {
-  indices: null as { data: MarketIndex[]; timestamp: number } | null,
-  stockPrices: new Map<string, { data: StockPrice; timestamp: number }>(),
-  topVolume: null as { data: TopStock[]; timestamp: number } | null,
-  foreignFlow: null as { data: ForeignFlow; timestamp: number } | null,
-  history: new Map<string, { data: StockHistory[]; timestamp: number }>(),
+  ohlcv: new Map<string, { data: OHLCVBar[]; timestamp: number }>(),
+  index: new Map<string, { data: IndexBar[]; timestamp: number }>(),
+  priceBoard: new Map<string, { data: PriceBoardEntry[]; timestamp: number }>(),
+  profile: new Map<string, { data: CompanyProfile; timestamp: number }>(),
+  topVolume: null as { data: RankingEntry[]; timestamp: number } | null,
+  foreignFlow: null as { data: { topBuy: RankingEntry[]; topSell: RankingEntry[] }; timestamp: number } | null,
 };
 
 const http = axios.create({
@@ -61,85 +112,258 @@ const http = axios.create({
   headers: { "User-Agent": "McpNewsBot/1.0" },
 });
 
-function isFresh(timestamp: number): boolean {
-  return Date.now() - timestamp < CACHE_TTL;
+function isFresh(timestamp: number, ttl = CACHE_TTL): boolean {
+  return Date.now() - timestamp < ttl;
 }
 
-export async function fetchMarketIndices(): Promise<MarketIndex[]> {
-  if (cache.indices && isFresh(cache.indices.timestamp)) {
-    return cache.indices.data;
+// ============================================================
+// TECHNICAL ANALYSIS (computed in-process from OHLCV)
+// ============================================================
+
+function sma(closes: number[], period: number): number | null {
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / period;
+}
+
+function ema(closes: number[], period: number): number | null {
+  if (closes.length < period) return null;
+  const k = 2 / (period + 1);
+  let val = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < closes.length; i++) {
+    val = closes[i] * k + val * (1 - k);
   }
+  return val;
+}
 
-  try {
-    const res = await http.get(`${BASE_IIS}/investment/index`);
-    const data = res.data?.data ?? res.data ?? [];
-    const indices: MarketIndex[] = (Array.isArray(data) ? data : []).map((item: any) => ({
-      indexName: item.indexName ?? item.IndexName ?? item.index_name ?? "",
-      indexValue: parseFloat(item.indexValue ?? item.IndexValue ?? item.index_value ?? 0),
-      change: parseFloat(item.change ?? item.Change ?? 0),
-      changePercent: parseFloat(item.changePercent ?? item.ChangePercent ?? item.change_percent ?? 0),
-      totalVolume: parseFloat(item.totalVolume ?? item.TotalVolume ?? item.total_volume ?? 0),
-      totalValue: parseFloat(item.totalValue ?? item.TotalValue ?? item.total_value ?? 0),
-    })).filter((idx: MarketIndex) => idx.indexName);
+function emaFull(closes: number[], period: number): number[] {
+  if (closes.length < period) return [];
+  const k = 2 / (period + 1);
+  const result: number[] = [];
+  let val = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  result.push(val);
+  for (let i = period; i < closes.length; i++) {
+    val = closes[i] * k + val * (1 - k);
+    result.push(val);
+  }
+  return result;
+}
 
-    if (indices.length > 0) {
-      cache.indices = { data: indices, timestamp: Date.now() };
+function rsi14(closes: number[]): number | null {
+  if (closes.length < 15) return null;
+  const last15 = closes.slice(-15);
+  const changes = last15.slice(1).map((v, i) => v - last15[i]);
+  const gains = changes.map(c => (c > 0 ? c : 0));
+  const losses = changes.map(c => (c < 0 ? -c : 0));
+  const avgGain = gains.reduce((a, b) => a + b, 0) / 14;
+  const avgLoss = losses.reduce((a, b) => a + b, 0) / 14;
+  if (avgLoss === 0) return 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
+}
+
+export function computeTechnicals(symbol: string, ohlcv: OHLCVBar[]): TechnicalIndicators {
+  const sorted = [...ohlcv].sort((a, b) => a.date.localeCompare(b.date));
+  const closes = sorted.map(b => b.close);
+  const latest = sorted[sorted.length - 1] ?? { close: 0, date: "" };
+
+  // MACD: need full EMA series of length >= 35 (26 + 9)
+  let macdLine: number | null = null;
+  let signalLine: number | null = null;
+  let histogram: number | null = null;
+
+  const ema26Full = emaFull(closes, 26);
+  const ema12Full = emaFull(closes, 12);
+  if (ema12Full.length > 0 && ema26Full.length > 0) {
+    macdLine = ema12Full[ema12Full.length - 1] - ema26Full[ema26Full.length - 1];
+    // Build MACD series for signal line: align both EMA-12 and EMA-26 series
+    // ema12Full starts after index 11, ema26Full starts after index 25
+    // offset = 26 - 12 = 14 bars difference in starting index
+    const offset = 26 - 12;
+    const macdSeries = ema26Full.map((v26, i) => ema12Full[i + offset] - v26);
+    if (macdSeries.length >= 9) {
+      signalLine = ema(macdSeries, 9);
+      if (signalLine !== null) histogram = macdLine - signalLine;
     }
-    return indices;
-  } catch {
-    return [
-      { indexName: "VNINDEX", indexValue: 0, change: 0, changePercent: 0, totalVolume: 0, totalValue: 0 },
-      { indexName: "HNX", indexValue: 0, change: 0, changePercent: 0, totalVolume: 0, totalValue: 0 },
-    ];
   }
+
+  // ATH/ATL from available OHLCV range
+  let ath: { price: number; date: string } | null = null;
+  let atl: { price: number; date: string } | null = null;
+  if (sorted.length > 0) {
+    let athBar = sorted[0];
+    let atlBar = sorted[0];
+    for (const bar of sorted) {
+      if (bar.high > athBar.high) athBar = bar;
+      if (bar.low < atlBar.low || atlBar.low === 0) atlBar = bar;
+    }
+    ath = { price: athBar.high, date: athBar.date };
+    atl = { price: atlBar.low, date: atlBar.date };
+  }
+
+  return {
+    symbol,
+    period: sorted.length,
+    latestClose: latest.close,
+    latestDate: latest.date,
+    sma20: sma(closes, 20),
+    sma50: sma(closes, 50),
+    sma200: sma(closes, 200),
+    ema12: ema(closes, 12),
+    ema26: ema(closes, 26),
+    rsi14: rsi14(closes),
+    macd: { macdLine, signalLine, histogram },
+    ath,
+    atl,
+    ohlcv: sorted.slice(-30),
+  };
 }
 
-export async function fetchStockPrice(symbol: string): Promise<StockPrice> {
+// ============================================================
+// KBS API FUNCTIONS
+// ============================================================
+
+export async function fetchStockOHLCV(symbol: string, days = 90): Promise<OHLCVBar[]> {
   const sym = symbol.toUpperCase();
-  const cached = cache.stockPrices.get(sym);
+  const key = `${sym}_${days}`;
+  const cached = cache.ohlcv.get(key);
   if (cached && isFresh(cached.timestamp)) return cached.data;
 
+  const edate = toKBSDate(new Date());
+  const sdate = toKBSDate(new Date(Date.now() - days * 86400000));
+
   try {
-    const res = await http.get(`${BASE_IIS}/investment/stock`, {
-      params: { symbol: sym },
+    const res = await http.get(`${BASE_IIS}/stocks/${sym}/data_day`, {
+      params: { sdate, edate },
     });
-    const item = res.data?.data ?? res.data ?? {};
+    // KBS nests OHLCV under "data_day" key: {symbol, data_day: [{t,o,h,l,c,v}]}
+    const raw = res.data?.data_day ?? res.data?.data ?? res.data ?? [];
+    const bars: OHLCVBar[] = (Array.isArray(raw) ? raw : []).map((item: any) => ({
+      date: String(item.t ?? "").split(" ")[0],
+      open: N(item.o),
+      high: N(item.h),
+      low: N(item.l),
+      close: N(item.c),
+      volume: N(item.v),
+    })).filter((b: OHLCVBar) => b.date && b.close > 0);
 
-    const price: StockPrice = {
-      symbol: sym,
-      price: parseFloat(item.price ?? item.Price ?? item.close ?? 0),
-      change: parseFloat(item.change ?? item.Change ?? 0),
-      changePercent: parseFloat(item.changePercent ?? item.ChangePercent ?? item.change_percent ?? 0),
-      volume: parseFloat(item.volume ?? item.Volume ?? 0),
-      high: parseFloat(item.high ?? item.High ?? 0),
-      low: parseFloat(item.low ?? item.Low ?? 0),
-      foreignBuy: parseFloat(item.foreignBuy ?? item.ForeignBuy ?? 0),
-      foreignSell: parseFloat(item.foreignSell ?? item.ForeignSell ?? 0),
-    };
-
-    cache.stockPrices.set(sym, { data: price, timestamp: Date.now() });
-    return price;
+    if (bars.length > 0) cache.ohlcv.set(key, { data: bars, timestamp: Date.now() });
+    return bars;
   } catch {
-    return { symbol: sym, price: 0, change: 0, changePercent: 0, volume: 0, high: 0, low: 0, foreignBuy: 0, foreignSell: 0 };
+    return [];
   }
 }
 
-export async function fetchTopVolume(limit = 10): Promise<TopStock[]> {
+export async function fetchIndexData(index: string, days = 30): Promise<IndexBar[]> {
+  const idx = index.toUpperCase();
+  const key = `${idx}_${days}`;
+  const cached = cache.index.get(key);
+  if (cached && isFresh(cached.timestamp)) return cached.data;
+
+  const edate = toKBSDate(new Date());
+  const sdate = toKBSDate(new Date(Date.now() - days * 86400000));
+
+  try {
+    const res = await http.get(`${BASE_IIS}/index/${idx}/data_day`, {
+      params: { sdate, edate },
+    });
+    // KBS nests index data under "data_day" key
+    const raw = res.data?.data_day ?? res.data?.data ?? res.data ?? [];
+    const bars: IndexBar[] = (Array.isArray(raw) ? raw : []).map((item: any) => ({
+      date: String(item.t ?? "").split(" ")[0],
+      open: N(item.o),
+      high: N(item.h),
+      low: N(item.l),
+      close: N(item.c),
+      volume: N(item.v),
+    })).filter((b: IndexBar) => b.date && b.close > 0);
+
+    if (bars.length > 0) cache.index.set(key, { data: bars, timestamp: Date.now() });
+    return bars;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchPriceBoard(symbols: string[]): Promise<PriceBoardEntry[]> {
+  const syms = symbols.map(s => s.toUpperCase());
+  const key = [...syms].sort().join(",");
+  const cached = cache.priceBoard.get(key);
+  if (cached && isFresh(cached.timestamp, CACHE_TTL_REALTIME)) return cached.data;
+
+  try {
+    const res = await http.post(`${BASE_IIS}/stock/iss`, { code: syms.join(",") });
+    const raw = res.data?.data ?? res.data ?? [];
+    // KBS price board fields: SB/IN=symbol, CP=close/match price, OP=open, HI=high, LO=low,
+    // CH=change, CHP=change%, TT=total volume, FB=foreign buy, FS=foreign sell,
+    // CL=ceiling, FL=floor, RE=reference
+    const entries: PriceBoardEntry[] = (Array.isArray(raw) ? raw : []).map((item: any) => ({
+      symbol: item.SB ?? item.IN ?? "",
+      price: N(item.CP),
+      open: N(item.OP),
+      high: N(item.HI),
+      low: N(item.LO),
+      change: N(item.CH),
+      changePercent: N(item.CHP),
+      volume: N(item.TT),
+      foreignBuy: N(item.FB),
+      foreignSell: N(item.FS),
+      ceiling: N(item.CL),
+      floor: N(item.FL),
+      ref: N(item.RE),
+    })).filter((e: PriceBoardEntry) => e.symbol);
+
+    if (entries.length > 0) cache.priceBoard.set(key, { data: entries, timestamp: Date.now() });
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchCompanyProfile(symbol: string): Promise<CompanyProfile | null> {
+  const sym = symbol.toUpperCase();
+  const cached = cache.profile.get(sym);
+  if (cached && isFresh(cached.timestamp, CACHE_TTL_PROFILE)) return cached.data;
+
+  try {
+    const res = await http.get(`${BASE_IIS}/stockinfo/profile/${sym}`, { params: { l: 1 } });
+    const d = res.data?.data ?? res.data ?? {};
+    // KBS profile fields: SB=symbol, SM=summary(HTML), FD=founding date, LD=listed date,
+    // EX=exchange, CC=chartered capital, VL=listed shares, FV=face value, LP=listed price
+    const profile: CompanyProfile = {
+      symbol: d.SB ?? sym,
+      companyName: d.SB ?? sym, // KBS has no separate company name field
+      exchange: d.EX ?? "",
+      industry: "", // not available in KBS profile
+      website: "", // not available in KBS profile
+      address: "", // not available in KBS profile
+      description: (d.SM ?? "").replace(/<[^>]*>/g, "").trim(),
+      listedDate: d.LD ?? "",
+      listedShares: N(d.VL),
+      charteredCapital: N(d.CC),
+    };
+    cache.profile.set(sym, { data: profile, timestamp: Date.now() });
+    return profile;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchTopVolume(limit = 10): Promise<RankingEntry[]> {
   if (cache.topVolume && isFresh(cache.topVolume.timestamp)) {
     return cache.topVolume.data.slice(0, limit);
   }
 
   try {
-    const res = await http.get(`${BASE_IIS}/investment/stock`, {
-      params: { type: "top_volume", limit },
-    });
-    const data = res.data?.data ?? res.data ?? [];
-    const stocks: TopStock[] = (Array.isArray(data) ? data : []).map((item: any) => ({
-      symbol: item.symbol ?? item.Symbol ?? "",
-      volume: parseFloat(item.volume ?? item.Volume ?? 0),
-      price: parseFloat(item.price ?? item.Price ?? 0),
-      changePercent: parseFloat(item.changePercent ?? item.ChangePercent ?? 0),
-    })).filter((s: TopStock) => s.symbol);
+    const res = await http.get(`${BASE_IIS}/rtranking/volume`);
+    const raw = res.data?.data ?? res.data ?? [];
+    // KBS ranking fields: sb=symbol(lowercase!), FMP=matched price, CH=change,
+    // CHPE=change%, VAL=value, ORIGINAL_VAL=original value
+    const stocks: RankingEntry[] = (Array.isArray(raw) ? raw : []).map((item: any) => ({
+      symbol: String(item.sb ?? item.SB ?? "").toUpperCase(),
+      value: N(item.ORIGINAL_VAL ?? item.VAL),
+      price: N(item.FMP),
+      changePercent: N(item.CHPE),
+    })).filter((s: RankingEntry) => s.symbol);
 
     cache.topVolume = { data: stocks, timestamp: Date.now() };
     return stocks.slice(0, limit);
@@ -148,71 +372,52 @@ export async function fetchTopVolume(limit = 10): Promise<TopStock[]> {
   }
 }
 
-export async function fetchForeignFlow(): Promise<ForeignFlow> {
+export async function fetchForeignRanking(limit = 10): Promise<{ topBuy: RankingEntry[]; topSell: RankingEntry[] }> {
   if (cache.foreignFlow && isFresh(cache.foreignFlow.timestamp)) {
-    return cache.foreignFlow.data;
+    const { topBuy, topSell } = cache.foreignFlow.data;
+    return { topBuy: topBuy.slice(0, limit), topSell: topSell.slice(0, limit) };
   }
 
   try {
-    const res = await http.get(`${BASE_IIS}/investment/stock`, {
-      params: { type: "foreign_flow" },
-    });
-    const d = res.data?.data ?? res.data ?? {};
+    const res = await http.get(`${BASE_IIS}/rtranking/foreignTotal`);
+    // KBS foreignTotal returns FLAT array: [{SB, CP, FB=foreign buy vol, FS=foreign sell vol, FT=total}]
+    const raw = res.data?.data ?? res.data ?? [];
+    const all = (Array.isArray(raw) ? raw : []).map((item: any) => ({
+      symbol: String(item.SB ?? "").toUpperCase(),
+      price: N(item.CP),
+      foreignBuy: N(item.FB),
+      foreignSell: N(item.FS),
+      foreignTotal: N(item.FT),
+    })).filter((x: any) => x.symbol);
 
-    const flow: ForeignFlow = {
-      buyValue: parseFloat(d.buyValue ?? d.buy_value ?? 0),
-      sellValue: parseFloat(d.sellValue ?? d.sell_value ?? 0),
-      netValue: parseFloat(d.netValue ?? d.net_value ?? 0),
-      topBuy: (d.topBuy ?? d.top_buy ?? []).slice(0, 5).map((x: any) => ({ symbol: x.symbol ?? "", value: parseFloat(x.value ?? 0) })),
-      topSell: (d.topSell ?? d.top_sell ?? []).slice(0, 5).map((x: any) => ({ symbol: x.symbol ?? "", value: parseFloat(x.value ?? 0) })),
-    };
+    const topBuy: RankingEntry[] = [...all]
+      .sort((a, b) => b.foreignBuy - a.foreignBuy)
+      .slice(0, limit)
+      .map(x => ({ symbol: x.symbol, value: x.foreignBuy, price: x.price, changePercent: 0 }));
 
-    cache.foreignFlow = { data: flow, timestamp: Date.now() };
-    return flow;
+    const topSell: RankingEntry[] = [...all]
+      .sort((a, b) => b.foreignSell - a.foreignSell)
+      .slice(0, limit)
+      .map(x => ({ symbol: x.symbol, value: x.foreignSell, price: x.price, changePercent: 0 }));
+
+    cache.foreignFlow = { data: { topBuy, topSell }, timestamp: Date.now() };
+    return { topBuy, topSell };
   } catch {
-    return { buyValue: 0, sellValue: 0, netValue: 0, topBuy: [], topSell: [] };
-  }
-}
-
-export async function fetchStockHistory(symbol: string, days = 30): Promise<StockHistory[]> {
-  const sym = symbol.toUpperCase();
-  const key = `${sym}_${days}`;
-  const cached = cache.history.get(key);
-  if (cached && isFresh(cached.timestamp)) return cached.data;
-
-  try {
-    const endDate = new Date().toISOString().split("T")[0];
-    const startDate = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
-
-    const res = await http.get(`${BASE_IIS}/sas/historical`, {
-      params: { symbol: sym, from: startDate, to: endDate },
-    });
-    const data = res.data?.data ?? res.data ?? [];
-    const history: StockHistory[] = (Array.isArray(data) ? data : []).map((item: any) => ({
-      date: item.date ?? item.Date ?? item.trading_date ?? "",
-      close: parseFloat(item.close ?? item.Close ?? item.closePrice ?? 0),
-      open: parseFloat(item.open ?? item.Open ?? item.openPrice ?? 0),
-      high: parseFloat(item.high ?? item.High ?? item.highPrice ?? 0),
-      low: parseFloat(item.low ?? item.Low ?? item.lowPrice ?? 0),
-      volume: parseFloat(item.volume ?? item.Volume ?? 0),
-    })).filter((h: StockHistory) => h.date);
-
-    cache.history.set(key, { data: history, timestamp: Date.now() });
-    return history;
-  } catch {
-    return [];
+    return { topBuy: [], topSell: [] };
   }
 }
 
 export async function getVNStockOverview(): Promise<{
-  indices: MarketIndex[];
-  topVolume: TopStock[];
-  foreignFlow: ForeignFlow;
+  topVolume: RankingEntry[];
+  foreignFlow: { topBuy: RankingEntry[]; topSell: RankingEntry[] };
 }> {
-  const [indices, topVolume, foreignFlow] = await Promise.all([
-    fetchMarketIndices(),
+  const [topVolume, foreignFlow] = await Promise.all([
     fetchTopVolume(10),
-    fetchForeignFlow(),
+    fetchForeignRanking(10),
   ]);
-  return { indices, topVolume, foreignFlow };
+  return { topVolume, foreignFlow };
 }
+
+// Backward-compat aliases
+export const fetchStockHistory = fetchStockOHLCV;
+export const fetchStockPrice = (symbol: string) => fetchPriceBoard([symbol]).then(r => r[0] ?? null);
