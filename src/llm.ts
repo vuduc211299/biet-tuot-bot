@@ -28,11 +28,19 @@ const GENERATE_RETRY_BASE_DELAY_MS = 2000;
 /** Returns true for transient network errors that are safe to retry. */
 function isTransientError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const cause = (error as Error & { cause?: { code?: string } }).cause;
   const transientCodes = ["ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "ECONNREFUSED", "UND_ERR_SOCKET"];
-  if (cause?.code && transientCodes.includes(cause.code)) return true;
-  const msg = error.message.toLowerCase();
-  return msg.includes("econnreset") || msg.includes("etimedout") || msg.includes("und_err_socket");
+  const transientMessages = ["econnreset", "etimedout", "und_err_socket", "terminated", "socket hang up"];
+
+  // Walk the full cause chain (e.g. APICallError → TypeError → Error)
+  let current: unknown = error;
+  while (current instanceof Error) {
+    const code = (current as any).code ?? (current as any).cause?.code;
+    if (code && transientCodes.includes(code)) return true;
+    const msg = current.message.toLowerCase();
+    if (transientMessages.some(t => msg.includes(t))) return true;
+    current = (current as any).cause;
+  }
+  return false;
 }
 
 /**
