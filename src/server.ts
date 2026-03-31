@@ -24,6 +24,11 @@ import {
   fetchCafefArticleContent,
   MACRO_CATEGORIES,
 } from "./cafef.js";
+import {
+  fetchCryptocurrencyNews,
+  fetchThuanCapitalNews,
+  fetchThuanCapitalArticle,
+} from "./crypto-news.js";
 
 const CATEGORIES = [
   "tin-moi-nhat", "the-gioi", "thoi-su", "kinh-doanh",
@@ -529,6 +534,89 @@ export function createServer(): McpServer {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { content: [{ type: "text", text: `[TOOL_ERROR] cafef_get_article_content: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  // ============================================================
+  // CRYPTO NEWS TOOLS
+  // ============================================================
+
+  server.registerTool(
+    "cryptocurrency_get_news",
+    {
+      title: "Cryptocurrency News (English)",
+      description:
+        "Get latest crypto market news in English aggregated from 200+ international sources " +
+        "(Bitcoinist, Bitcoin.com, NYTimes, Yahoo Finance, ZeroHedge, etc.). " +
+        "Covers Bitcoin, altcoins, regulation, ETFs, mining, and broader crypto market. " +
+        "Returns title, source name, original article link, summary, and publication date.",
+      inputSchema: {
+        limit: z.number().min(1).max(20).optional()
+          .describe("Max number of articles to return (1-20, default 15)"),
+      },
+    },
+    async ({ limit }) => {
+      try {
+        const articles = await fetchCryptocurrencyNews(limit ?? 15);
+        logTool("cryptocurrency_get_news", { limit }, articles);
+        return { content: [{ type: "text", text: JSON.stringify(articles, null, 2) }] };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text", text: `[TOOL_ERROR] cryptocurrency_get_news: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "thuancapital_get_news",
+    {
+      title: "ThuanCapital Crypto News (Vietnamese)",
+      description:
+        "Get Vietnamese crypto news and knowledge from ThuanCapital. " +
+        "Categories: tin-tuc (daily crypto news, market updates, author analysis on specific coins/events), " +
+        "kien-thuc (educational: what is Bitcoin, BTC vs gold, crypto philosophy, market education). " +
+        "Returns article titles, summaries, and URLs.",
+      inputSchema: {
+        category: z.enum(["tin-tuc", "kien-thuc"]).optional()
+          .describe("tin-tuc (daily news & analysis, default) or kien-thuc (definitions, education, crypto philosophy)"),
+        page: z.number().min(1).max(5).optional()
+          .describe("Page number 1-5 (default 1)"),
+      },
+    },
+    async ({ category, page }) => {
+      try {
+        const articles = await fetchThuanCapitalNews(category ?? "tin-tuc", page ?? 1);
+        logTool("thuancapital_get_news", { category, page }, articles);
+        return { content: [{ type: "text", text: JSON.stringify(articles, null, 2) }] };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text", text: `[TOOL_ERROR] thuancapital_get_news: ${msg}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "thuancapital_get_article",
+    {
+      title: "ThuanCapital Article Content",
+      description:
+        "Read full content of a ThuanCapital article by URL. " +
+        "Use after thuancapital_get_news to get detailed Vietnamese crypto analysis. " +
+        "Returns title, summary, full article content, and publication date.",
+      inputSchema: {
+        url: z.string()
+          .describe("Full ThuanCapital article URL from thuancapital_get_news results"),
+      },
+    },
+    async ({ url }) => {
+      try {
+        const detail = await fetchThuanCapitalArticle(url);
+        logTool("thuancapital_get_article", { url }, { title: detail.title, url: detail.url, contentLength: detail.content?.length });
+        return { content: [{ type: "text", text: JSON.stringify(detail, null, 2) }] };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text", text: `[TOOL_ERROR] thuancapital_get_article: ${msg}` }], isError: true };
       }
     }
   );
