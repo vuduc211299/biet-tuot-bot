@@ -44,5 +44,5 @@ export const coingeckoHttp = axios.create({
 export function logTool(name: string, input: Record<string, unknown>, data: unknown): void {
   const json = JSON.stringify(data);
   const preview = json.length > 800 ? json.slice(0, 800) + `... (${json.length} chars)` : json;
-  console.log(`[TOOL] ${name} | input: ${JSON.stringify(input)} | response: ${preview}`);
+  console.log(`[TOOL] ${name} | input: ${JSON.stringify(input)}`);
 }

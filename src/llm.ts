@@ -155,8 +155,6 @@ export class LlmAssistant {
           def.inputSchema as Parameters<typeof jsonSchema>[0]
         ),
         execute: async (args) => {
-          console.log(`[Tool] ${toolName}(${JSON.stringify(args)})`);
-
           for (let attempt = 1; attempt <= TOOL_MAX_RETRIES; attempt++) {
             const result = await this.mcpClient.callTool(
               toolName,
@@ -232,6 +230,20 @@ export class LlmAssistant {
           messages: history,
           tools,
           stopWhen: stepCountIs(MAX_STEPS),
+          experimental_onStepStart: ({ stepNumber, messages: stepMessages }) => {
+            console.log(`[LLM context step=${stepNumber}] messages=${stepMessages.length} | ${JSON.stringify(stepMessages.map(m => ({
+              role: m.role,
+              content: typeof m.content === "string"
+                ? m.content.slice(0, 200)
+                : Array.isArray(m.content)
+                  ? (m.content as Array<{ type?: string; toolCallId?: string; toolName?: string; args?: unknown; text?: string }>).map(p =>
+                    p.type === "tool-result" ? `[tool-result:${p.toolCallId}]` :
+                      p.type === "tool-call" ? `[tool-call:${p.toolName}(${JSON.stringify(p.args)})]` :
+                        String(p.text ?? "").slice(0, 200)
+                  )
+                  : String(m.content).slice(0, 200),
+            })))}`);
+          },
         });
         break;
       } catch (err) {
