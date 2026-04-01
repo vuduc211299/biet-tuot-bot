@@ -129,6 +129,10 @@ export async function fetchTopCoins(limit = 10): Promise<CryptoPrice[]> {
   const coins: CryptoPrice[] = res.data.map(mapCoin);
 
   cache.topCoins = { data: coins, timestamp: Date.now() };
+  // Cross-populate per-coin price cache so fetchCryptoPrices() hits cache for top coins
+  for (const coin of coins) {
+    cache.prices.set(coin.id, { data: coin, timestamp: Date.now() });
+  }
   return coins.slice(0, limit);
 }
 

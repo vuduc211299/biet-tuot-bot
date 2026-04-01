@@ -6,6 +6,7 @@ import {
   type ModelMessage,
   type Tool,
   type LanguageModel,
+  Output,
 } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -14,7 +15,7 @@ import { McpClientWrapper, type McpToolDefinition } from "./mcp-client.js";
 import { CHAT_SYSTEM_PROMPT, REASONER_SYSTEM_PROMPT } from "./prompts/index.js";
 
 const MAX_HISTORY_CHAT = 20;
-const MAX_HISTORY_REASONER = 80;
+const MAX_HISTORY_REASONER = 20;
 const MAX_STEPS = 10;
 const TOOL_MAX_RETRIES = 3;
 const TOOL_RETRY_DELAY_MS = 1000;
@@ -116,6 +117,8 @@ export class LlmAssistant {
   private mcpClient: McpClientWrapper;
   private mcpToolDefs: McpToolDefinition[] = [];
   private conversations = new Map<string, ModelMessage[]>();
+  private cachedTools: Record<string, Tool> | null = null;
+  private notifyUserRef: (msg: string) => Promise<void> = async () => { };
 
   constructor(config: LlmConfig, mcpClient: McpClientWrapper, reasonerConfig?: LlmReasonerConfig) {
     this.chatModel = createModel(config);
@@ -137,11 +140,11 @@ export class LlmAssistant {
     await this.mcpClient.connect();
     this.mcpToolDefs = await this.mcpClient.getToolDefinitions();
     console.log(`Loaded ${this.mcpToolDefs.length} MCP tools`);
+    // Pre-build tool definitions once; execute closures use notifyUserRef
+    this.cachedTools = this.buildTools();
   }
 
-  private buildTools(
-    notifyUser: (msg: string) => Promise<void>
-  ): Record<string, Tool> {
+  private buildTools(): Record<string, Tool> {
     const tools: Record<string, Tool> = {};
 
     for (const def of this.mcpToolDefs) {
@@ -162,7 +165,7 @@ export class LlmAssistant {
 
             if (result.success) {
               if (attempt > 1) {
-                await notifyUser(
+                await this.notifyUserRef(
                   `✅ Tool \`${toolName}\` succeeded on attempt ${attempt}.`
                 );
               }
@@ -170,14 +173,14 @@ export class LlmAssistant {
             }
 
             if (attempt < TOOL_MAX_RETRIES) {
-              await notifyUser(
+              await this.notifyUserRef(
                 `⚠️ Tool \`${toolName}\` failed (attempt ${attempt}/${TOOL_MAX_RETRIES}).\n` +
                 `Reason: ${result.errorReason ?? "Unknown error"}.\n` +
                 `Retrying in ${TOOL_RETRY_DELAY_MS / 1000}s...`
               );
               await delay(TOOL_RETRY_DELAY_MS);
             } else {
-              await notifyUser(
+              await this.notifyUserRef(
                 `❌ Tool \`${toolName}\` failed after ${TOOL_MAX_RETRIES} attempts.\n` +
                 `Reason: ${result.errorReason ?? "Unknown error"}.`
               );
@@ -211,10 +214,13 @@ export class LlmAssistant {
 
     console.log(`[LLM] chatId=${chatId} | mode=${mode} | model=${activeModelName}`);
 
+    // Update the shared notifyUser ref so cached tool closures use this call's callback
+    this.notifyUserRef = notifyUser;
+
     const history = this.conversations.get(chatId) ?? [];
     history.push({ role: "user", content: userMessage });
 
-    const tools = this.buildTools(notifyUser);
+    const tools = this.cachedTools ?? this.buildTools();
 
     let result!: Awaited<ReturnType<typeof generateText>>;
     const maxAttempts = GENERATE_MAX_RETRIES + 1;
@@ -232,7 +238,7 @@ export class LlmAssistant {
         if (attempt < maxAttempts && isTransientError(err)) {
           const retryDelay = GENERATE_RETRY_BASE_DELAY_MS * attempt;
           console.warn(`[LLM] Transient network error on attempt ${attempt}/${maxAttempts}, retrying in ${retryDelay}ms`, err);
-          await notifyUser(`⚠️ Connection issue, retrying... (${attempt}/${maxAttempts - 1})`);
+          await this.notifyUserRef(`⚠️ Connection issue, retrying... (${attempt}/${maxAttempts - 1})`);
           await delay(retryDelay);
         } else {
           throw err;
@@ -243,8 +249,27 @@ export class LlmAssistant {
     const finalText =
       result.text || "I was unable to generate a response. Please try again.";
 
+    // Strip tool result payloads before storing in history to prevent token bloat.
+    // Keep role:"tool" stubs (with tool_call_id) so the API doesn't see orphan tool calls.
+    const strippedMessages = (result.response.messages as ModelMessage[]).map(msg => {
+      if (msg.role === "tool") {
+        const stripped = {
+          ...msg,
+          content: (msg.content as Array<Record<string, unknown>>).map(part => ({
+            ...part,
+            output: {
+              type: "text",
+              value: "ok"
+            },
+          })),
+        };
+        return stripped as unknown as ModelMessage;
+      }
+      return msg;
+    });
+
     // Append all response messages (assistant + tool calls/results) to history
-    history.push(...(result.response.messages as ModelMessage[]));
+    history.push(...strippedMessages);
 
     // Trim history to prevent token bloat, never leaving orphan tool messages
     const maxHistory = mode === "reasoner" ? MAX_HISTORY_REASONER : MAX_HISTORY_CHAT;

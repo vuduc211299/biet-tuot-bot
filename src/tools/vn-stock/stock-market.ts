@@ -1,6 +1,5 @@
-import axios from "axios";
 import * as cheerio from "cheerio";
-import { isFresh } from "../_shared/http.js";
+import { isFresh, kbsHttp as http, http as httpCafef } from "../_shared/http.js";
 
 const BASE_IIS = "https://kbbuddywts.kbsec.com.vn/iis-server/investment";
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -85,39 +84,27 @@ export interface FinancialRatios {
 // ── Cache ────────────────────────────────────────────────────────────────────
 
 const cache = {
-  ohlcv: new Map<string, { data: OHLCVBar[]; timestamp: number }>(),
+  ohlcv: new Map<string, { data: OHLCVBar[]; days: number; timestamp: number }>(),
   index: new Map<string, { data: IndexBar[]; timestamp: number }>(),
-  priceBoard: new Map<string, { data: PriceBoardEntry[]; timestamp: number }>(),
+  priceBoardEntry: new Map<string, { data: PriceBoardEntry; timestamp: number }>(),
   profile: new Map<string, { data: CompanyProfile; timestamp: number }>(),
   topVolume: null as { data: RankingEntry[]; timestamp: number } | null,
   foreignFlow: null as { data: { topBuy: RankingEntry[]; topSell: RankingEntry[] }; timestamp: number } | null,
   ratios: new Map<string, { data: FinancialRatios; timestamp: number }>(),
 };
 
-const http = axios.create({
-  timeout: 15000,
-  headers: { "User-Agent": "McpNewsBot/1.0" },
-});
-
-const httpCafef = axios.create({
-  timeout: 15000,
-  headers: {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
-  },
-});
-
 // ── KBS API Functions ────────────────────────────────────────────────────────
 
 export async function fetchStockOHLCV(symbol: string, days = 90): Promise<OHLCVBar[]> {
   const sym = symbol.toUpperCase();
-  const key = `${sym}_${days}`;
-  const cached = cache.ohlcv.get(key);
-  if (cached && isFresh(cached.timestamp, CACHE_TTL)) return cached.data;
+  const cached = cache.ohlcv.get(sym);
+  if (cached && isFresh(cached.timestamp, CACHE_TTL) && cached.days >= days) {
+    return cached.data.slice(-days);
+  }
 
+  const fetchDays = Math.max(days, cached?.days ?? 0);
   const edate = toKBSDate(new Date());
-  const sdate = toKBSDate(new Date(Date.now() - days * 86400000));
+  const sdate = toKBSDate(new Date(Date.now() - fetchDays * 86400000));
 
   try {
     const res = await http.get(`${BASE_IIS}/stocks/${sym}/data_day`, {
@@ -133,8 +120,8 @@ export async function fetchStockOHLCV(symbol: string, days = 90): Promise<OHLCVB
       volume: N(item.v),
     })).filter((b: OHLCVBar) => b.date && b.close > 0);
 
-    if (bars.length > 0) cache.ohlcv.set(key, { data: bars, timestamp: Date.now() });
-    return bars;
+    if (bars.length > 0) cache.ohlcv.set(sym, { data: bars, days: fetchDays, timestamp: Date.now() });
+    return bars.slice(-days);
   } catch {
     return [];
   }
@@ -172,12 +159,21 @@ export async function fetchIndexData(index: string, days = 30): Promise<IndexBar
 
 export async function fetchPriceBoard(symbols: string[]): Promise<PriceBoardEntry[]> {
   const syms = symbols.map(s => s.toUpperCase());
-  const key = [...syms].sort().join(",");
-  const cached = cache.priceBoard.get(key);
-  if (cached && isFresh(cached.timestamp, CACHE_TTL_REALTIME)) return cached.data;
+  const now = Date.now();
+
+  // Check per-symbol cache first
+  const freshSyms = syms.filter(s => {
+    const e = cache.priceBoardEntry.get(s);
+    return e && isFresh(e.timestamp, CACHE_TTL_REALTIME);
+  });
+  const staleSyms = syms.filter(s => !freshSyms.includes(s));
+
+  if (staleSyms.length === 0) {
+    return syms.map(s => cache.priceBoardEntry.get(s)!.data);
+  }
 
   try {
-    const res = await http.post(`${BASE_IIS}/stock/iss`, { code: syms.join(",") });
+    const res = await http.post(`${BASE_IIS}/stock/iss`, { code: staleSyms.join(",") });
     const raw = res.data?.data ?? res.data ?? [];
     const entries: PriceBoardEntry[] = (Array.isArray(raw) ? raw : []).map((item: any) => ({
       symbol: item.SB ?? item.IN ?? "",
@@ -195,10 +191,16 @@ export async function fetchPriceBoard(symbols: string[]): Promise<PriceBoardEntr
       ref: N(item.RE),
     })).filter((e: PriceBoardEntry) => e.symbol);
 
-    if (entries.length > 0) cache.priceBoard.set(key, { data: entries, timestamp: Date.now() });
-    return entries;
+    // Cache each entry individually
+    for (const entry of entries) {
+      cache.priceBoardEntry.set(entry.symbol, { data: entry, timestamp: now });
+    }
+
+    // Return all requested symbols from per-symbol cache
+    return syms.map(s => cache.priceBoardEntry.get(s)?.data).filter(Boolean) as PriceBoardEntry[];
   } catch {
-    return [];
+    // On error, return whatever we have cached
+    return syms.map(s => cache.priceBoardEntry.get(s)?.data).filter(Boolean) as PriceBoardEntry[];
   }
 }
 

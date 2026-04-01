@@ -1,44 +1,23 @@
 // Shared tool routing — used by both CHAT and REASONER prompts
-const TOOL_ROUTING = `TOOL USAGE GUIDELINES:
+const TOOL_ROUTING = `TOOL ROUTING RULES:
 
-─── ROUTING ───
-Match user question → RIGHT tool category:
 • VN stock price/data/analysis/company → stock_* and cafef_get_company_news/financials/insider_trading
 • Macro economy, gold, foreign investors, banking → cafef_get_macro_news FIRST, then vnexpress_* to cross-reference
 • General news, world events, geopolitics → vnexpress_* tools
 • Crypto questions → crypto_* for price/technical, cryptocurrency_get_news + thuancapital_* for content
-Do NOT use vnexpress for stock questions when stock tools can answer directly.
-VnExpress is for GENERAL NEWS — not for stock prices, company data, or financial ratios.
+Do NOT use vnexpress for stock questions. VnExpress is for GENERAL NEWS only.
 
-─── VN STOCK (9 tools) ───
-• stock_vn_overview — market overview: top volume + foreign flow (1 call for both)
-• stock_get_ohlcv — historical OHLCV for 1 symbol over N days
-• stock_get_index — index data: VNINDEX, HNX, UPCOM, VN30, HNX30
-• stock_price_board — real-time prices for MULTIPLE symbols (comma-separated, 1 call)
-• stock_get_profile — company profile (name, industry, exchange, etc.)
-• stock_get_technical — all-in-one: SMA/EMA/RSI/MACD/ATH/ATL (fetches OHLCV internally — do NOT also call stock_get_ohlcv for same symbol)
-• cafef_get_company_news — company news & events (optionally filter by keyword)
-• cafef_get_insider_trading — insider/shareholder transaction disclosures
-• cafef_get_financials — P/E, EPS, P/B, market cap from CafeF
+EFFICIENCY — avoid redundant calls:
+• stock_get_technical fetches OHLCV internally — do NOT also call stock_get_ohlcv for the same symbol
+• stock_price_board accepts MULTIPLE symbols in 1 call — do NOT call once per symbol
+• crypto_get_overview already includes top 10 coins — skip crypto_get_prices for those coins
+• crypto_get_technical covers all indicators in 1 call — never call it twice for the same coin
+• ThuanCapital: tin-tuc = news/market updates; kien-thuc = education/definitions
 
-─── CRYPTO (6 tools) ───
-• crypto_get_overview — global market cap, BTC dominance, top 10 coins, trending (skip crypto_get_prices for top coins)
-• crypto_get_prices — prices for specific coins by CoinGecko ID (only for coins outside top 10)
-• crypto_get_technical — RSI, SMA, EMA, MACD, ATH/ATL, supply in ONE call — never call twice for same coin
-• cryptocurrency_get_news — English crypto news from 200+ international sources
-• thuancapital_get_news — Vietnamese crypto: tin-tuc (news/analysis) or kien-thuc (education/definitions)
-• thuancapital_get_article — full article content by URL from thuancapital_get_news results
-ThuanCapital routing:
-  – tin-tuc: crypto NEWS, market updates, coin analysis, price movements
-  – kien-thuc: definitions ("Bitcoin là gì?"), crypto philosophy, BTC vs gold, education
-For crypto questions: use BOTH cryptocurrency_get_news (EN) + thuancapital_get_news (VN) for multi-language perspective.
-
-─── NEWS (5 tools) ───
-• vnexpress_get_latest_news — latest articles by category (tin-moi-nhat, kinh-doanh, the-gioi, thoi-su, bat-dong-san, khoa-hoc, so-hoa, phap-luat)
-• vnexpress_search_news — keyword search across VnExpress (1-2 targeted keywords, not redundant)
-• vnexpress_get_article_content — full article by ID or URL
-• cafef_get_macro_news — macro/market news: chung-khoan, vi-mo, quoc-te, thi-truong, ngan-hang
-• cafef_get_article_content — full CafeF article by URL`;
+PURE DATA vs ANALYSIS:
+• For price/volume/change/market-cap queries: call ONLY the minimum data tool. Do NOT call news, profile, or article tools unless the user explicitly asks for news/context/why/analysis.
+• "giá top 10 cổ phiếu" → stock_price_board ONLY, NOT stock_get_profile for each symbol
+• "top crypto" → crypto_get_overview ONLY, NOT crypto_get_prices additionally`;
 
 // Chat mode: fast, data-forward, minimal commentary
 export const CHAT_SYSTEM_PROMPT = `You are a fast, data-forward financial and news assistant.

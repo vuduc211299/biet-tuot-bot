@@ -9,6 +9,7 @@
 
 | Date       | Change                                                                                                                                                                                                  |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-01 | Performance upgrade: unified HTTP instances (`kbsHttp`), smarter caching (max-period OHLCV, per-symbol price board, cross-populate crypto, VnExpress eviction), cache warmup, slimmed TOOL_ROUTING, stripped tool results from history, memoized `buildTools()`. |
 | 2026-04-01 | Refactored flat `src/*.ts` data sources into `src/tools/` topic folders (`crypto/`, `vn-stock/`, `news/`). Slimmed `server.ts` to thin orchestrator. Shared axios instances moved to `_shared/http.ts`. |
 | 2026-04-01 | Rewrote `TOOL_ROUTING` in `src/prompts/system.ts` to match new 3-folder topic structure.                                                                                                                |
 | 2026-04-01 | Initial project setup: Telegram bot + MCP server + 20 tools across 5 data sources.                                                                                                                      |
@@ -47,7 +48,7 @@ tsc --build --clean && npm run build  # clean rebuild
 src/
 ├── bot-main.ts          # Entry point — starts MCP server + Telegram bot in one process
 ├── server.ts            # MCP server — thin orchestrator, calls registerAllTools()
-├── llm.ts               # Vercel AI SDK wrapper — tool-use loop, chat history, retry logic
+├── llm.ts               # Vercel AI SDK wrapper — tool-use loop, chat history, retry logic, tool result stripping
 ├── telegram.ts          # grammY bot — commands, access control, auto mode detection
 ├── mcp-client.ts        # MCP HTTP client — bridges AI tool calls → MCP server
 ├── index.ts             # Standalone MCP server entry (no bot, for inspector/testing)
@@ -122,10 +123,13 @@ src/
 | Export                          | Purpose                                                                                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `http`                          | Axios instance with Vietnamese browser UA + `Accept-Language: vi-VN`. Used by CafeF scrapers, VnExpress (via `fetchWithRetry`), stock-news. |
+| `kbsHttp`                       | Axios instance with `McpNewsBot/1.0` UA. Used by stock-market and stock-technical for KBS Securities API calls.                              |
 | `coingeckoHttp`                 | Axios instance with `McpNewsBot/1.0` UA + optional `x-cg-demo-api-key` header. Used by crypto-market and crypto-technical.                  |
 | `isFresh(timestamp, ttl)`       | Returns true if `Date.now() - timestamp < ttl`. Used for all cache checks.                                                                  |
-| `fetchWithRetry(url, retries?)` | GET with up to 2 retries, 1s delay. Uses `http` instance.                                                                                   |
+| `fetchWithRetry(url, retries?)` | GET with up to 2 retries, 500ms delay. Uses `http` instance.                                                                                |
 | `logTool(name, input, data)`    | Logs tool name + input + truncated response preview to console.                                                                             |
+
+> **No local axios instances** — tool files must import from `_shared/http.ts`. Use `kbsHttp` for KBS, `coingeckoHttp` for CoinGecko, `http` for CafeF/VnExpress.
 
 ---
 
@@ -157,6 +161,24 @@ src/
 | VnExpress RSS              | vnexpress                                                         | 5 min (feeds), 60 min (articles)   |
 | cryptocurrency.cv RSS      | crypto-news                                                       | 5 min                              |
 | ThuanCapital HTML scraping | crypto-news                                                       | 5 min                              |
+
+### Cache Architecture
+
+- **OHLCV max-period caching**: Cache key is symbol only (not `symbol_days`). Always stores the longest period fetched; shorter requests are sliced from cache. Applies to both `stock-market.ts` and `crypto-technical.ts`.
+- **Per-symbol price board**: `fetchPriceBoard()` caches each symbol individually. Subsequent calls only fetch stale/missing symbols from KBS.
+- **Cross-population**: `fetchTopCoins()` writes each coin into `cache.prices`, so `fetchCryptoPrices(["bitcoin"])` hits cache after an overview call.
+- **VnExpress eviction**: Article cache is capped at 500 entries (`MAX_CACHED_ARTICLES`). Oldest by `publishedAt` are evicted from `articles`, `fullContent`, and `articleFetchTime` maps simultaneously.
+- **Cache warmup**: `warmupCaches()` in `src/tools/index.ts` pre-fetches crypto overview + VN stock overview on startup (called from `bot-main.ts` after MCP server starts).
+
+---
+
+## LLM Context Management (`src/llm.ts`)
+
+- **Tool result stripping**: After `generateText()`, all `role: "tool"` message contents are replaced with `"ok"` stubs before storing in history. This prevents multi-thousand-token OHLCV arrays and article content from bloating subsequent API calls. The stub preserves `tool_call_id` so the API doesn't see orphan tool calls.
+- **History limit**: `MAX_HISTORY = 20` messages for both chat and reasoner modes. With tool results stripped, 20 messages ≈ 2,000–4,000 tokens.
+- **Memoized tools**: `buildTools()` runs once in `initialize()` and is cached as `cachedTools`. Per-call `notifyUser` callback is swapped via a mutable `notifyUserRef`.
+- **TOOL_ROUTING**: ~20 lines of routing-only rules in `src/prompts/system.ts`. Per-tool descriptions live in each tool's `description` field, not in the system prompt. Includes a "PURE DATA vs ANALYSIS" guard to prevent over-tooling.
+- **Command prompts**: `MARKET_PROMPT` in `src/prompts/commands.ts` explicitly names tools (`crypto_get_overview`, `stock_vn_overview`) to eliminate LLM guessing.
 
 ---
 

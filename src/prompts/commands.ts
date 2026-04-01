@@ -23,7 +23,7 @@ export function buildNewsPrompt(topic?: string): string {
 }
 
 export const MARKET_PROMPT =
-  "Hãy cho tôi tổng quan thị trường hôm nay: giá crypto (BTC, ETH), chứng khoán Việt Nam (VN-Index, top cổ phiếu theo khối lượng, dòng tiền khối ngoại) kết hợp với tin tức kinh tế mới nhất";
+  "Gọi crypto_get_overview để lấy dữ liệu crypto (top coins, BTC dominance, trending) và stock_vn_overview để lấy top cổ phiếu VN (khối lượng, dòng tiền ngoại). Trình bày dạng bullet list ngắn gọn.";
 
 export function buildPlanPrompt(market: string): string {
   return `Đề xuất trading plan cho thị trường ${market} trong tuần này. Bao gồm: watchlist, entry/exit zone, stop-loss, key catalysts cần theo dõi${market === "stock" ? ", chỉ số kỹ thuật (RSI/MACD/SMA) và định giá (P/E, EPS)" : ""}.`;

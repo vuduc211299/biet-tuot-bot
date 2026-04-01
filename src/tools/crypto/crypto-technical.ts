@@ -38,17 +38,19 @@ export interface TechnicalAnalysis {
   ohlc_days: number;
 }
 
-const ohlcCache = new Map<string, { data: OHLCCandle[]; timestamp: number }>();
+const ohlcCache = new Map<string, { data: OHLCCandle[]; days: number; timestamp: number }>();
 
 // ── OHLC ─────────────────────────────────────────────────────────────────────
 
 export async function fetchCoinOHLC(id: string, days = 365): Promise<OHLCCandle[]> {
-  const key = `${id}_${days}`;
-  const cached = ohlcCache.get(key);
-  if (cached && isFresh(cached.timestamp, OHLC_CACHE_TTL)) return cached.data;
+  const cached = ohlcCache.get(id);
+  if (cached && isFresh(cached.timestamp, OHLC_CACHE_TTL) && cached.days >= days) {
+    return cached.data.slice(-days);
+  }
 
+  const fetchDays = Math.max(days, cached?.days ?? 0);
   const res = await http.get(`${BASE_URL}/coins/${id}/ohlc`, {
-    params: { vs_currency: "usd", days },
+    params: { vs_currency: "usd", days: fetchDays },
   });
 
   const candles: OHLCCandle[] = (res.data ?? []).map(
@@ -61,8 +63,8 @@ export async function fetchCoinOHLC(id: string, days = 365): Promise<OHLCCandle[
     })
   );
 
-  ohlcCache.set(key, { data: candles, timestamp: Date.now() });
-  return candles;
+  ohlcCache.set(id, { data: candles, days: fetchDays, timestamp: Date.now() });
+  return candles.slice(-days);
 }
 
 // ── Technical Indicator Calculations ─────────────────────────────────────────

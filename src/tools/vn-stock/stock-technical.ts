@@ -1,5 +1,4 @@
-import axios from "axios";
-import { isFresh } from "../_shared/http.js";
+import { isFresh, kbsHttp as http } from "../_shared/http.js";
 import { fetchStockOHLCV, type OHLCVBar } from "./stock-market.js";
 
 const BASE_IIS = "https://kbbuddywts.kbsec.com.vn/iis-server/investment";
@@ -43,11 +42,6 @@ export interface StockATHATL {
 // ── Cache ────────────────────────────────────────────────────────────────────
 
 const athAtlCache = new Map<string, { data: StockATHATL; timestamp: number }>();
-
-const http = axios.create({
-  timeout: 15000,
-  headers: { "User-Agent": "McpNewsBot/1.0" },
-});
 
 // ── Technical Analysis (computed in-process from OHLCV) ──────────────────────
 

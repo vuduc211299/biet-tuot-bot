@@ -5,6 +5,7 @@ import { createServer } from "./server.js";
 import { McpClientWrapper } from "./mcp-client.js";
 import { LlmAssistant, type LlmConfig } from "./llm.js";
 import { TelegramNewsBot } from "./telegram.js";
+import { warmupCaches } from "./tools/index.js";
 
 function requireEnv(name: string): string {
   const val = process.env[name]?.trim();
@@ -78,7 +79,10 @@ async function main(): Promise<void> {
   });
   console.log(`MCP Server running at http://localhost:${port}/mcp`);
 
-  // ---- 3. Initialize LLM + MCP Client ----
+  // ---- 3. Warm up frequently-used caches (non-blocking) ----
+  warmupCaches().catch(err => console.warn("[warmup] Cache warmup failed:", err));
+
+  // ---- 4. Initialize LLM + MCP Client ----
   // Small delay to ensure Express is fully listening before connecting
   await new Promise(r => setTimeout(r, 300));
 
@@ -93,11 +97,11 @@ async function main(): Promise<void> {
   await llm.initialize();
   console.log("LLM Assistant initialized");
 
-  // ---- 4. Start Telegram Bot ----
+  // ---- 5. Start Telegram Bot ----
   const bot = new TelegramNewsBot(telegramToken, llm);
   await bot.start();
 
-  // ---- 5. Graceful Shutdown ----
+  // ---- 6. Graceful Shutdown ----
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\nReceived ${signal}. Shutting down gracefully...`);
     try {

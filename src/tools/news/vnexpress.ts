@@ -32,6 +32,7 @@ export const CATEGORIES = Object.keys(RSS_FEEDS) as [string, ...string[]];
 
 const CACHE_TTL_RSS = 5 * 60 * 1000;
 const CACHE_TTL_ARTICLE = 60 * 60 * 1000;
+const MAX_CACHED_ARTICLES = 500;
 
 const cache = {
   articles: new Map<string, NewsArticle>(),
@@ -111,6 +112,17 @@ export async function fetchCategoryFeed(category: string): Promise<NewsArticle[]
     cache.articles.set(article.id, article);
   }
   cache.categoryLastFetch.set(category, Date.now());
+
+  // Evict oldest articles if over the limit
+  if (cache.articles.size > MAX_CACHED_ARTICLES) {
+    const sorted = [...cache.articles.entries()]
+      .sort(([, a], [, b]) => a.publishedAt.localeCompare(b.publishedAt));
+    for (const [id] of sorted.slice(0, cache.articles.size - MAX_CACHED_ARTICLES)) {
+      cache.articles.delete(id);
+      cache.fullContent.delete(id);
+      cache.articleFetchTime.delete(id);
+    }
+  }
 
   return articles;
 }

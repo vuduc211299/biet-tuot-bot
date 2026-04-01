@@ -20,11 +20,16 @@ export async function fetchWithRetry(url: string, retries = 2): Promise<string> 
       return res.data;
     } catch (err) {
       if (i === retries) throw err;
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 500));
     }
   }
   throw new Error("unreachable");
 }
+
+export const kbsHttp = axios.create({
+  timeout: 15000,
+  headers: { "User-Agent": "McpNewsBot/1.0" },
+});
 
 const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY?.trim();
 
