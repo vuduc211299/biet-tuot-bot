@@ -15,7 +15,7 @@ import { McpClientWrapper, type McpToolDefinition } from "./mcp-client.js";
 import { CHAT_SYSTEM_PROMPT, REASONER_SYSTEM_PROMPT } from "./prompts/index.js";
 
 const MAX_HISTORY_CHAT = 20;
-const MAX_HISTORY_REASONER = 20;
+const MAX_HISTORY_REASONER = 10;
 const MAX_STEPS = 7;
 const TOOL_MAX_RETRIES = 3;
 const TOOL_RETRY_DELAY_MS = 1000;

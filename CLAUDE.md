@@ -7,12 +7,13 @@
 
 ## Changelog
 
-| Date       | Change                                                                                                                                                                                                  |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-04-01 | Performance upgrade: unified HTTP instances (`kbsHttp`), smarter caching (max-period OHLCV, per-symbol price board, cross-populate crypto, VnExpress eviction), cache warmup, slimmed TOOL_ROUTING, stripped tool results from history, memoized `buildTools()`. |
-| 2026-04-01 | Refactored flat `src/*.ts` data sources into `src/tools/` topic folders (`crypto/`, `vn-stock/`, `news/`). Slimmed `server.ts` to thin orchestrator. Shared axios instances moved to `_shared/http.ts`. |
-| 2026-04-01 | Rewrote `TOOL_ROUTING` in `src/prompts/system.ts` to match new 3-folder topic structure.                                                                                                                |
-| 2026-04-01 | Initial project setup: Telegram bot + MCP server + 20 tools across 5 data sources.                                                                                                                      |
+| Date       | Change                                                                                                                                                                                                                                                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-02 | Prompt tuning: strict source isolation (crypto→crypto tools, stock→KBS+CafeF, VnExpress→general news only), parallel tool-call instructions in shared `TOOL_ROUTING`, ideal flows with step notation in reasoner, mandatory language-match rule, `MAX_HISTORY_REASONER` 20→10, `experimental_onStepStart` logging for per-step LLM context. |
+| 2026-04-01 | Performance upgrade: unified HTTP instances (`kbsHttp`), smarter caching (max-period OHLCV, per-symbol price board, cross-populate crypto, VnExpress eviction), cache warmup, slimmed TOOL_ROUTING, stripped tool results from history, memoized `buildTools()`.                                                                            |
+| 2026-04-01 | Refactored flat `src/*.ts` data sources into `src/tools/` topic folders (`crypto/`, `vn-stock/`, `news/`). Slimmed `server.ts` to thin orchestrator. Shared axios instances moved to `_shared/http.ts`.                                                                                                                                     |
+| 2026-04-01 | Rewrote `TOOL_ROUTING` in `src/prompts/system.ts` to match new 3-folder topic structure.                                                                                                                                                                                                                                                    |
+| 2026-04-01 | Initial project setup: Telegram bot + MCP server + 20 tools across 5 data sources.                                                                                                                                                                                                                                                          |
 
 ---
 
@@ -123,7 +124,7 @@ src/
 | Export                          | Purpose                                                                                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `http`                          | Axios instance with Vietnamese browser UA + `Accept-Language: vi-VN`. Used by CafeF scrapers, VnExpress (via `fetchWithRetry`), stock-news. |
-| `kbsHttp`                       | Axios instance with `McpNewsBot/1.0` UA. Used by stock-market and stock-technical for KBS Securities API calls.                              |
+| `kbsHttp`                       | Axios instance with `McpNewsBot/1.0` UA. Used by stock-market and stock-technical for KBS Securities API calls.                             |
 | `coingeckoHttp`                 | Axios instance with `McpNewsBot/1.0` UA + optional `x-cg-demo-api-key` header. Used by crypto-market and crypto-technical.                  |
 | `isFresh(timestamp, ttl)`       | Returns true if `Date.now() - timestamp < ttl`. Used for all cache checks.                                                                  |
 | `fetchWithRetry(url, retries?)` | GET with up to 2 retries, 500ms delay. Uses `http` instance.                                                                                |
@@ -175,9 +176,12 @@ src/
 ## LLM Context Management (`src/llm.ts`)
 
 - **Tool result stripping**: After `generateText()`, all `role: "tool"` message contents are replaced with `"ok"` stubs before storing in history. This prevents multi-thousand-token OHLCV arrays and article content from bloating subsequent API calls. The stub preserves `tool_call_id` so the API doesn't see orphan tool calls.
-- **History limit**: `MAX_HISTORY = 20` messages for both chat and reasoner modes. With tool results stripped, 20 messages ≈ 2,000–4,000 tokens.
+- **History limit**: `MAX_HISTORY_CHAT = 20`, `MAX_HISTORY_REASONER = 10` messages. With tool results stripped, this keeps context lean for faster LLM calls.
 - **Memoized tools**: `buildTools()` runs once in `initialize()` and is cached as `cachedTools`. Per-call `notifyUser` callback is swapped via a mutable `notifyUserRef`.
-- **TOOL_ROUTING**: ~20 lines of routing-only rules in `src/prompts/system.ts`. Per-tool descriptions live in each tool's `description` field, not in the system prompt. Includes a "PURE DATA vs ANALYSIS" guard to prevent over-tooling.
+- **TOOL_ROUTING**: ~30 lines of routing-only rules in `src/prompts/system.ts`. Includes strict **source isolation** (crypto→crypto*\* only, stock→stock*_+cafef\__ only, VnExpress→general news only), **parallel tool-call** instruction, "PURE DATA vs ANALYSIS" guard, and dedup rules. Per-tool descriptions live in each tool's `description` field, not in the system prompt.
+- **Reasoner ideal flows**: Step-by-step parallel notation targeting 2-3 LLM round-trips per response. MAX 7 tool calls per response.
+- **Language rule**: Both prompts have a top-level `LANGUAGE — MANDATORY` section requiring responses match the user's language, even when tool data is English.
+- **Per-step logging**: `experimental_onStepStart` callback logs message count and compact content summary before each LLM API call within the multi-step loop.
 - **Command prompts**: `MARKET_PROMPT` in `src/prompts/commands.ts` explicitly names tools (`crypto_get_overview`, `stock_vn_overview`) to eliminate LLM guessing.
 
 ---
