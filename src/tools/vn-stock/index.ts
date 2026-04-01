@@ -20,7 +20,8 @@ export function registerVnStockTools(server: McpServer): void {
       title: "Vietnam Stock Market Overview",
       description:
         "Get Vietnam stock market overview: top stocks by volume and foreign investor buy/sell rankings. " +
-        "Data from KBS Securities. Use stock_get_index for VNINDEX/HNX/UPCOM index price data.",
+        "Data from KBS Securities. Use stock_get_index for VNINDEX/HNX/UPCOM index price data. " +
+        "Calling again returns the same data. Call only ONCE per conversation.",
       inputSchema: {},
     },
     async () => {
@@ -149,7 +150,8 @@ export function registerVnStockTools(server: McpServer): void {
       description:
         "Get recent company news and corporate events for a Vietnam stock from CafeF. " +
         "Includes: business updates, dividend announcements, personnel changes, capital events " +
-        "and shareholder transactions. Optionally filter by category keyword.",
+        "and shareholder transactions. Optionally filter by category keyword. " +
+        "NOT paginated — calling again for the same symbol returns the same results. Call only ONCE per symbol.",
       inputSchema: {
         symbol: z.string().describe("Stock ticker symbol, e.g. 'VNM', 'FPT'"),
         category: z.string().optional()
@@ -177,7 +179,8 @@ export function registerVnStockTools(server: McpServer): void {
       title: "CafeF Insider & Shareholder Trading",
       description:
         "Get insider trading and major shareholder transaction disclosures for a Vietnam stock from CafeF. " +
-        "Includes registered buy/sell transactions by board members, executives, and large shareholders.",
+        "Includes registered buy/sell transactions by board members, executives, and large shareholders. " +
+        "NOT paginated — calling again for the same symbol returns the same results. Call only ONCE per symbol.",
       inputSchema: {
         symbol: z.string().describe("Stock ticker symbol, e.g. 'VNM', 'FPT'"),
       },

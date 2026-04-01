@@ -16,7 +16,8 @@ export function registerCryptoTools(server: McpServer): void {
       title: "Crypto Market Overview",
       description:
         "Get a comprehensive crypto market overview from CoinGecko: global market cap, BTC dominance, " +
-        "top 10 coins by market cap with prices/changes, and trending coins. Free API, no key required.",
+        "top 10 coins by market cap with prices/changes, and trending coins. Free API, no key required. " +
+        "Calling again returns the same data. Call only ONCE per conversation.",
       inputSchema: {},
     },
     async () => {
@@ -90,7 +91,8 @@ export function registerCryptoTools(server: McpServer): void {
         "Get latest crypto market news in English aggregated from 200+ international sources " +
         "(Bitcoinist, Bitcoin.com, NYTimes, Yahoo Finance, ZeroHedge, etc.). " +
         "Covers Bitcoin, altcoins, regulation, ETFs, mining, and broader crypto market. " +
-        "Returns title, source name, original article link, summary, and publication date.",
+        "Returns title, source name, original article link, summary, and publication date. " +
+        "NOT paginated — calling again returns the same articles. Call only ONCE per conversation.",
       inputSchema: {
         limit: z.number().min(1).max(20).optional()
           .describe("Max number of articles to return (1-20, default 15)"),

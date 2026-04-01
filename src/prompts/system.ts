@@ -8,10 +8,13 @@ const TOOL_ROUTING = `TOOL ROUTING RULES:
 Do NOT use vnexpress for stock questions. VnExpress is for GENERAL NEWS only.
 
 EFFICIENCY — avoid redundant calls:
+• NEVER call the same tool twice with same or similar arguments — results will be identical
 • stock_get_technical fetches OHLCV internally — do NOT also call stock_get_ohlcv for the same symbol
 • stock_price_board accepts MULTIPLE symbols in 1 call — do NOT call once per symbol
 • crypto_get_overview already includes top 10 coins — skip crypto_get_prices for those coins
 • crypto_get_technical covers all indicators in 1 call — never call it twice for the same coin
+• cryptocurrency_get_news is NOT paginated — calling it again returns the same articles. Call ONCE only.
+• vnexpress_search_news — one keyword is enough per topic. Do NOT search synonyms of the same thing.
 • ThuanCapital: tin-tuc = news/market updates; kien-thuc = education/definitions
 
 PURE DATA vs ANALYSIS:

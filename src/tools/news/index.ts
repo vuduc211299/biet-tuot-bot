@@ -20,7 +20,8 @@ export function registerNewsTools(server: McpServer): void {
       description:
         "Fetch latest news articles from VnExpress.net by category. Returns titles, summaries, URLs, and timestamps. " +
         "Categories: tin-moi-nhat (all latest), the-gioi (world/geopolitics), thoi-su (domestic politics), " +
-        "kinh-doanh (business/finance), bat-dong-san (real estate), khoa-hoc (science), so-hoa (tech), phap-luat (law).",
+        "kinh-doanh (business/finance), bat-dong-san (real estate), khoa-hoc (science), so-hoa (tech), phap-luat (law). " +
+        "NOT paginated — calling again with the same category returns the same articles. Call only ONCE per category.",
       inputSchema: {
         category: z.enum(CATEGORIES).optional()
           .describe("News category. Default: tin-moi-nhat"),
@@ -55,7 +56,8 @@ export function registerNewsTools(server: McpServer): void {
       title: "Search VnExpress News",
       description:
         "Search VnExpress articles by keyword across titles and summaries. Useful for finding articles about " +
-        "specific topics like 'vàng' (gold), 'FED', 'lãi suất' (interest rates), 'chiến tranh' (war), etc.",
+        "specific topics like 'vàng' (gold), 'FED', 'lãi suất' (interest rates), 'chiến tranh' (war), etc. " +
+        "NOT paginated — same keyword returns the same results. Do NOT search synonyms of the same topic.",
       inputSchema: {
         keyword: z.string().describe("Search keyword(s) in Vietnamese or English"),
         category: z.enum(CATEGORIES).optional()
@@ -122,7 +124,8 @@ export function registerNewsTools(server: McpServer): void {
         "Fetch latest macro/market news articles from CafeF by category. " +
         "Categories: chung-khoan (stock market), vi-mo (macro economy/investment), " +
         "quoc-te (international finance), thi-truong (gold/commodities/market), ngan-hang (banking). " +
-        "Returns titles, summaries, URLs, and dates. Best for Vietnam macro analysis, gold, foreign investors.",
+        "Returns titles, summaries, URLs, and dates. Best for Vietnam macro analysis, gold, foreign investors. " +
+        "NOT paginated — calling again with the same category returns the same articles. Call only ONCE per category.",
       inputSchema: {
         category: z.enum(CAFEF_CATEGORIES)
           .describe("CafeF macro category: chung-khoan, vi-mo, quoc-te, thi-truong, ngan-hang"),
