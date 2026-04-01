@@ -13,7 +13,7 @@ function requireEnv(name: string): string {
 }
 
 async function main(): Promise<void> {
-  console.log("Starting VnExpress Financial Analysis Bot...");
+  console.log("Starting Bot...");
 
   // ---- 1. Validate required env vars ----
   const telegramToken = requireEnv("TELEGRAM_BOT_TOKEN");

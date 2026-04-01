@@ -1,5 +1,5 @@
-import axios from "axios";
 import * as cheerio from "cheerio";
+import { isFresh, fetchWithRetry } from "../_shared/http.js";
 
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -43,34 +43,6 @@ const cache = {
   thuanList: new Map<string, { data: ThuanCapitalArticle[]; timestamp: number }>(),
   thuanArticle: new Map<string, { data: ThuanCapitalArticleDetail; timestamp: number }>(),
 };
-
-const http = axios.create({
-  timeout: 15000,
-  headers: {
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.5",
-  },
-});
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function fetchWithRetry(url: string, retries = 2): Promise<string> {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const res = await http.get<string>(url, { responseType: "text" });
-      return res.data;
-    } catch (err) {
-      if (i === retries) throw err;
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }
-  throw new Error("unreachable");
-}
-
-function isFresh(timestamp: number, ttl: number): boolean {
-  return Date.now() - timestamp < ttl;
-}
 
 // ── cryptocurrency.cv RSS ────────────────────────────────────────────────────
 
@@ -150,7 +122,6 @@ export async function fetchThuanCapitalNews(
     const title = anchor.text().trim();
     if (!title || !href) return;
 
-    // Extract article ID from URL pattern: -i{ID}.html
     const idMatch = href.match(/-i(\d+)\.html$/);
     if (!idMatch) return;
 
@@ -160,14 +131,12 @@ export async function fetchThuanCapitalNews(
 
     const fullUrl = href.startsWith("http") ? href : `${THUANCAPITAL_BASE}${href.startsWith("/") ? "" : "/"}${href}`;
 
-    // Find summary — look at next sibling paragraphs
     let summary = "";
     const parent = $(el).parent();
     const nextP = parent.find("p").first();
     if (nextP.length) {
       summary = nextP.text().trim();
     }
-    // Fallback: look at the sibling element after h2
     if (!summary) {
       let next = $(el).next();
       while (next.length && !summary) {
@@ -190,7 +159,6 @@ export async function fetchThuanCapitalNews(
 }
 
 export async function fetchThuanCapitalArticle(url: string): Promise<ThuanCapitalArticleDetail> {
-  // Validate URL belongs to ThuanCapital
   if (!url.includes("thuancapital.com")) {
     throw new Error("URL must be from thuancapital.com");
   }
@@ -201,22 +169,16 @@ export async function fetchThuanCapitalArticle(url: string): Promise<ThuanCapita
   const html = await fetchWithRetry(url);
   const $ = cheerio.load(html);
 
-  // Extract article ID from URL
   const idMatch = url.match(/-i(\d+)\.html$/);
   const id = idMatch?.[1] || url;
 
-  // Title: h1
   const title = $("h1").first().text().trim();
-
-  // Summary: h3 near the title (subtitle/lead)
   const summary = $("h3").first().text().trim();
 
-  // Published date — look for date pattern near top
   let publishedAt: string | undefined;
   $("*").each((_i, el) => {
-    if (publishedAt) return false; // break
+    if (publishedAt) return false;
     const text = $(el).children().length === 0 ? $(el).text().trim() : "";
-    // Match pattern like "31 Tháng 03, 2026 00:04"
     const dateMatch = text.match(/(\d{1,2})\s+Tháng\s+(\d{2}),\s+(\d{4})\s+(\d{2}:\d{2})/);
     if (dateMatch) {
       const [, day, month, year, time] = dateMatch;
@@ -224,8 +186,6 @@ export async function fetchThuanCapitalArticle(url: string): Promise<ThuanCapita
     }
   });
 
-  // Content: collect all section paragraphs
-  // Article body is between h3 (summary) and the affiliate/sidebar section
   const contentParts: string[] = [];
   const stopKeywords = ["Bài Nổi Bật", "Tham gia các Sàn", "THUANCAPITAL", "Điều Khoản"];
 
@@ -233,10 +193,8 @@ export async function fetchThuanCapitalArticle(url: string): Promise<ThuanCapita
     const text = $(el).text().trim();
     if (!text) return;
 
-    // Stop at sidebar/footer content
     if (stopKeywords.some(kw => text.includes(kw))) return false;
 
-    // Skip affiliate links
     if ($(el).find('a[href*="binance.com"], a[href*="bybit"], a[href*="okx.com"], a[href*="pipaffiliates"]').length) return;
 
     if ($(el).is("h2")) {

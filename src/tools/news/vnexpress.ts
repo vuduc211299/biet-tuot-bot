@@ -1,5 +1,5 @@
-import axios from "axios";
 import * as cheerio from "cheerio";
+import { fetchWithRetry } from "../_shared/http.js";
 
 export interface NewsArticle {
   id: string;
@@ -18,15 +18,17 @@ export interface ArticleDetail extends NewsArticle {
 }
 
 const RSS_FEEDS: Record<string, { url: string; label: string }> = {
-  "tin-moi-nhat": { url: "https://vnexpress.net/rss/tin-moi-nhat.rss",  label: "Tin mới nhất" },
-  "the-gioi":     { url: "https://vnexpress.net/rss/the-gioi.rss",      label: "Thế giới" },
-  "thoi-su":      { url: "https://vnexpress.net/rss/thoi-su.rss",       label: "Thời sự" },
-  "kinh-doanh":   { url: "https://vnexpress.net/rss/kinh-doanh.rss",    label: "Kinh doanh" },
-  "bat-dong-san": { url: "https://vnexpress.net/rss/bat-dong-san.rss",  label: "Bất động sản" },
-  "khoa-hoc":     { url: "https://vnexpress.net/rss/khoa-hoc.rss",      label: "Khoa học" },
-  "so-hoa":       { url: "https://vnexpress.net/rss/so-hoa.rss",        label: "Số hóa" },
-  "phap-luat":    { url: "https://vnexpress.net/rss/phap-luat.rss",     label: "Pháp luật" },
+  "tin-moi-nhat": { url: "https://vnexpress.net/rss/tin-moi-nhat.rss", label: "Tin mới nhất" },
+  "the-gioi": { url: "https://vnexpress.net/rss/the-gioi.rss", label: "Thế giới" },
+  "thoi-su": { url: "https://vnexpress.net/rss/thoi-su.rss", label: "Thời sự" },
+  "kinh-doanh": { url: "https://vnexpress.net/rss/kinh-doanh.rss", label: "Kinh doanh" },
+  "bat-dong-san": { url: "https://vnexpress.net/rss/bat-dong-san.rss", label: "Bất động sản" },
+  "khoa-hoc": { url: "https://vnexpress.net/rss/khoa-hoc.rss", label: "Khoa học" },
+  "so-hoa": { url: "https://vnexpress.net/rss/so-hoa.rss", label: "Số hóa" },
+  "phap-luat": { url: "https://vnexpress.net/rss/phap-luat.rss", label: "Pháp luật" },
 };
+
+export const CATEGORIES = Object.keys(RSS_FEEDS) as [string, ...string[]];
 
 const CACHE_TTL_RSS = 5 * 60 * 1000;
 const CACHE_TTL_ARTICLE = 60 * 60 * 1000;
@@ -38,26 +40,7 @@ const cache = {
   articleFetchTime: new Map<string, number>(),
 };
 
-const http = axios.create({
-  timeout: 15000,
-  headers: {
-    "User-Agent": "Mozilla/5.0 (compatible; McpNewsBot/1.0)",
-    "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.5",
-  },
-});
 
-async function fetchWithRetry(url: string, retries = 2): Promise<string> {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const res = await http.get<string>(url, { responseType: "text" });
-      return res.data;
-    } catch (err) {
-      if (i === retries) throw err;
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }
-  throw new Error("unreachable");
-}
 
 function extractArticleId(url: string): string {
   const match = url.match(/(\d+)\.html$/);
@@ -77,12 +60,12 @@ function parseRSSFeed(xml: string, category: string): NewsArticle[] {
   const articles: NewsArticle[] = [];
 
   $("item").each((_i, el) => {
-    const title    = $(el).find("title").first().text().trim();
-    const link     = $(el).find("link").first().text().trim()
-                  || $(el).find("link").first().attr("href")?.trim() || "";
-    const pubDate  = $(el).find("pubDate").first().text().trim();
-    const desc     = $(el).find("description").first().text();
-    const thumb    = $(el).find("enclosure").first().attr("url");
+    const title = $(el).find("title").first().text().trim();
+    const link = $(el).find("link").first().text().trim()
+      || $(el).find("link").first().attr("href")?.trim() || "";
+    const pubDate = $(el).find("pubDate").first().text().trim();
+    const desc = $(el).find("description").first().text();
+    const thumb = $(el).find("enclosure").first().attr("url");
 
     if (!title || !link) return;
 
@@ -114,9 +97,9 @@ export async function fetchCategoryFeed(category: string): Promise<NewsArticle[]
   }
 
   const lastFetch = cache.categoryLastFetch.get(category) ?? 0;
-  const isFresh = Date.now() - lastFetch < CACHE_TTL_RSS;
+  const fresh = Date.now() - lastFetch < CACHE_TTL_RSS;
 
-  if (isFresh) {
+  if (fresh) {
     const cached = [...cache.articles.values()].filter(a => a.category === category);
     if (cached.length > 0) return cached.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
   }
@@ -124,7 +107,6 @@ export async function fetchCategoryFeed(category: string): Promise<NewsArticle[]
   const xml = await fetchWithRetry(RSS_FEEDS[category].url);
   const articles = parseRSSFeed(xml, category);
 
-  // Update cache
   for (const article of articles) {
     cache.articles.set(article.id, article);
   }
@@ -134,7 +116,6 @@ export async function fetchCategoryFeed(category: string): Promise<NewsArticle[]
 }
 
 export async function fetchArticleContent(urlOrId: string): Promise<ArticleDetail> {
-  // Resolve URL from cache if given ID
   let url = urlOrId;
   let id = urlOrId;
 
@@ -147,7 +128,6 @@ export async function fetchArticleContent(urlOrId: string): Promise<ArticleDetai
     id = extractArticleId(urlOrId);
   }
 
-  // Check full content cache
   const cachedFull = cache.fullContent.get(id);
   const fetchTime = cache.articleFetchTime.get(id) ?? 0;
   if (cachedFull && Date.now() - fetchTime < CACHE_TTL_ARTICLE) {
@@ -161,14 +141,13 @@ export async function fetchArticleContent(urlOrId: string): Promise<ArticleDetai
     const $ = cheerio.load(html);
 
     const title = $("h1.title-detail").first().text().trim()
-               || $("h1").first().text().trim()
-               || baseArticle?.title || "";
+      || $("h1").first().text().trim()
+      || baseArticle?.title || "";
 
     const author = $("p.author_mail strong").first().text().trim()
-                || $('p[style*="text-align:right"] strong').first().text().trim()
-                || $(".author").first().text().trim();
+      || $('p[style*="text-align:right"] strong').first().text().trim()
+      || $(".author").first().text().trim();
 
-    // Extract article body — try multiple selectors
     let content = "";
     const bodySelectors = [
       "article.fck_detail p.Normal",
@@ -222,7 +201,6 @@ export async function fetchArticleContent(urlOrId: string): Promise<ArticleDetai
 }
 
 export async function searchArticles(keyword: string, category?: string): Promise<NewsArticle[]> {
-  // Ensure we have some data
   if (cache.articles.size === 0) {
     await fetchCategoryFeed("tin-moi-nhat");
   }
