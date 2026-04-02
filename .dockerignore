@@ -1,1 +1,11 @@
-# Docker implementation skipped
+node_modules
+lib
+.git
+.github
+.env
+.env.*
+*.md
+backup
+.tsbuildinfo
+.inspector.json
+.vscode

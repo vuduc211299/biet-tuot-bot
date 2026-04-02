@@ -1,0 +1,6 @@
+# Copy this file to terraform.tfvars and fill in your values
+# terraform.tfvars is gitignored — never commit it
+
+aws_region    = "ap-southeast-1"
+key_pair_name = "your-key-pair-name"    # TODO: Create in AWS Console → EC2 → Key Pairs
+my_ip         = "x.x.x.x/32"           # TODO: Run `curl ifconfig.me` to find your IP
