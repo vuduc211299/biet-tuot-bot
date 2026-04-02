@@ -215,79 +215,52 @@ FPT đang giá bao nhiêu?              → giá cổ phiếu (auto chat mode)
 
 ---
 
-## Deploy lên VPS (Docker)
-
-### Yêu cầu VPS
-
-- Ubuntu 22.04+ hoặc Debian 12
-- RAM >= 512MB, CPU 1 vCPU, Disk 5GB
-- Docker + Docker Compose đã cài
-
-### Deploy
-
-```bash
-# 1. Copy code lên VPS
-scp -r . user@your-vps:/opt/biettuotbot
-
-# 2. SSH vào VPS
-ssh user@your-vps
-cd /opt/biettuotbot
-
-# 3. Tạo .env trên VPS (điền thông tin thực)
-cp .env.example .env
-nano .env
-
-# 4. Khởi động
-docker compose up -d
-
-# 5. Kiểm tra logs
-docker compose logs -f
-```
-
-Container tự động restart khi VPS reboot (`restart: unless-stopped`). Healthcheck kiểm tra `/health` endpoint mỗi 30 giây.
-
-### Cập nhật code
-
-```bash
-git pull
-docker compose build --no-cache
-docker compose up -d
-```
-
----
-
 ## Cấu trúc project
 
 ```
 src/
 ├── bot-main.ts          # Entry point — khởi động MCP server + Telegram bot
-├── telegram.ts          # Telegram bot layer (grammY) — lệnh, access control, auto mode detection
+├── server.ts            # MCP server — thin orchestrator, đăng ký 20 tools
 ├── llm.ts               # LLM wrapper (Vercel AI SDK) — tool-use loop, chat history, retry logic
+├── telegram.ts          # Telegram bot layer (grammY) — lệnh, access control, auto mode detection
 ├── mcp-client.ts        # MCP HTTP client — kết nối đến MCP server
-├── server.ts            # MCP server — đăng ký 20 tools
-├── vnexpress.ts         # VnExpress RSS + bài viết (cache 5 phút)
-├── cafef.ts             # CafeF macro news + company data (HTML scraping, cache 5 phút)
-├── crypto.ts            # CoinGecko API — giá, technical analysis (cache 3 phút)
-├── crypto-news.ts       # cryptocurrency.cv RSS + ThuanCapital scraping (cache 5 phút)
-├── stock.ts             # KBS Securities — OHLCV, price board, profile, technicals (cache 5 phút)
-└── prompts/
-    ├── system.ts        # System prompt: CHAT mode + REASONER mode + tool routing
-    ├── commands.ts      # Command prompt builders (/news, /market, /plan, /analysis)
-    └── mcp/             # MCP prompt templates
+├── index.ts             # Standalone MCP server entry (không có bot, dùng cho inspector/test)
+├── prompts/
+│   ├── system.ts        # CHAT_SYSTEM_PROMPT, REASONER_SYSTEM_PROMPT, TOOL_ROUTING
+│   ├── commands.ts      # Per-command prompt builders (/news, /market, /plan, /analysis)
+│   └── index.ts         # Re-exports
+└── tools/
+    ├── index.ts         # registerAllTools(server) — gọi 3 topic registers + cache warmup
+    ├── _shared/
+    │   └── http.ts      # Shared axios instances (http, kbsHttp, coingeckoHttp) + utils
+    ├── crypto/
+    │   ├── crypto-market.ts    # CoinGecko: prices, top coins, global data, trending
+    │   ├── crypto-technical.ts # CoinGecko OHLC + RSI/SMA/EMA/MACD calculations
+    │   ├── crypto-news.ts      # cryptocurrency.cv RSS + ThuanCapital scraping
+    │   └── index.ts            # registerCryptoTools(server) — 6 tools
+    ├── vn-stock/
+    │   ├── stock-market.ts     # KBS Securities: OHLCV, price board, profile + CafeF financials
+    │   ├── stock-technical.ts  # SMA/EMA/RSI/MACD computation + ATH/ATL từ full history
+    │   ├── stock-news.ts       # CafeF: company news + insider trading
+    │   └── index.ts            # registerVnStockTools(server) — 9 tools
+    └── news/
+        ├── vnexpress.ts        # VnExpress RSS feeds + article content + search
+        ├── macro-news.ts       # CafeF macro/market news by category
+        ├── article-reader.ts   # CafeF full article content reader
+        └── index.ts            # registerNewsTools(server) — 5 tools
 ```
 
-| File             | Vai trò                                                             |
-| ---------------- | ------------------------------------------------------------------- |
-| `bot-main.ts`    | Orchestrator — start server và bot, validate env vars               |
-| `telegram.ts`    | UI layer — nhận lệnh, auto-detect mode, gửi trả lời, access control |
-| `llm.ts`         | AI brain — tool-use loop, quản lý lịch sử, retry ECONNRESET         |
-| `mcp-client.ts`  | Bridge — chuyển tool call từ AI xuống MCP server                    |
-| `server.ts`      | Tool registry — định nghĩa 20 tools cho AI gọi                      |
-| `vnexpress.ts`   | Data source — VnExpress RSS + full article                          |
-| `cafef.ts`       | Data source — CafeF macro news, company news, financials, insider   |
-| `crypto.ts`      | Data source — CoinGecko giá + technical analysis                    |
-| `crypto-news.ts` | Data source — cryptocurrency.cv (EN) + ThuanCapital (VN)            |
-| `stock.ts`       | Data source — KBS Securities OHLCV, price board, profile, ATH/ATL   |
+| File/Folder       | Vai trò                                                                     |
+| ----------------- | --------------------------------------------------------------------------- |
+| `bot-main.ts`     | Orchestrator — start server và bot, validate env vars, trigger cache warmup |
+| `telegram.ts`     | UI layer — nhận lệnh, auto-detect mode, gửi trả lời, access control         |
+| `llm.ts`          | AI brain — tool-use loop, quản lý lịch sử, strip tool results, retry        |
+| `mcp-client.ts`   | Bridge — chuyển tool call từ AI xuống MCP server qua HTTP                   |
+| `server.ts`       | Tool registry — thin orchestrator gọi registerAllTools()                    |
+| `tools/_shared/`  | Shared axios instances + isFresh(), fetchWithRetry(), logTool()             |
+| `tools/crypto/`   | CoinGecko API: giá, technical analysis, tin crypto EN + ThuanCapital VN     |
+| `tools/vn-stock/` | KBS Securities + CafeF: OHLCV, giá, profile, kỹ thuật, tin công ty, nội bộ  |
+| `tools/news/`     | VnExpress RSS + CafeF macro news + full article reader                      |
 
 ---
 
@@ -316,6 +289,7 @@ Trình duyệt mở → click **Connect** → **List Tools** → chọn tool →
 | `AI_REASONER_MODEL`    | ❌       | Model cho reasoner mode (fallback: dùng AI_MODEL)        |
 | `AI_REASONER_API_KEY`  | ❌       | API key riêng cho reasoner (fallback: dùng AI_API_KEY)   |
 | `AI_REASONER_BASE_URL` | ❌       | Base URL riêng cho reasoner (fallback: dùng AI_BASE_URL) |
+| `COINGECKO_API_KEY`    | ❌       | CoinGecko demo API key (rate limit cao hơn)              |
 | `MCP_SERVER_URL`       | ❌       | Mặc định: `http://localhost:3001/mcp`                    |
 | `PORT`                 | ❌       | Mặc định: `3001`                                         |
 | `ADMIN_CHAT_ID`        | ❌       | Chat ID admin (có thể dùng /allow, /block, /users)       |

@@ -9,6 +9,7 @@
 
 | Date       | Change                                                                                                                                                                                                                                                                                                                                      |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-02 | Infra & deployment: multi-stage Dockerfile (node:22-alpine), docker-compose.yml (local dev), .dockerignore, GitHub Actions CI/CD (build→ECR push→SSH deploy), Terraform IaC in `infra/` (EC2 t3.micro ap-southeast-1, ECR, IAM deployer+instance-profile, SG, EIP, 30 GB gp3). EC2 live at `masked_ip`. |
 | 2026-04-02 | Prompt tuning: strict source isolation (crypto→crypto tools, stock→KBS+CafeF, VnExpress→general news only), parallel tool-call instructions in shared `TOOL_ROUTING`, ideal flows with step notation in reasoner, mandatory language-match rule, `MAX_HISTORY_REASONER` 20→10, `experimental_onStepStart` logging for per-step LLM context. |
 | 2026-04-01 | Performance upgrade: unified HTTP instances (`kbsHttp`), smarter caching (max-period OHLCV, per-symbol price board, cross-populate crypto, VnExpress eviction), cache warmup, slimmed TOOL_ROUTING, stripped tool results from history, memoized `buildTools()`.                                                                            |
 | 2026-04-01 | Refactored flat `src/*.ts` data sources into `src/tools/` topic folders (`crypto/`, `vn-stock/`, `news/`). Slimmed `server.ts` to thin orchestrator. Shared axios instances moved to `_shared/http.ts`.                                                                                                                                     |
@@ -203,3 +204,57 @@ src/
 | `PORT`                 | ❌       | MCP server port, default: `3001`              |
 | `ADMIN_CHAT_ID`        | ❌       | Telegram chat ID of admin                     |
 | `ALLOWED_CHAT_IDS`     | ❌       | Comma-separated allowed chat IDs              |
+
+---
+
+## Infra & Deployment
+
+The bot is deployed on **AWS EC2** in `ap-southeast-1` (Singapore) via Docker + ECR + GitHub Actions + Terraform.
+
+### Files
+
+| File                              | Purpose                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| `Dockerfile`                      | Multi-stage build: `builder` (npm ci + tsc), `production` (runtime only)    |
+| `docker-compose.yml`              | Local dev only — mounts `.env`, log rotation 10m/3 files                    |
+| `.dockerignore`                   | Excludes `node_modules`, `lib`, `.git`, `.env`, `infra`, `*.md`, etc.       |
+| `.github/workflows/deploy.yml`    | CI/CD: push to `main` → build image → ECR push → SSH deploy to EC2          |
+| `infra/main.tf`                   | AWS provider + dynamic AL2023 AMI data source + caller identity              |
+| `infra/variables.tf`              | `aws_region=ap-southeast-1`, `instance_type=t3.micro`, `key_pair_name`, `my_ip` |
+| `infra/networking.tf`             | Security group (SSH port 22 from `my_ip` only) + Elastic IP                |
+| `infra/iam.tf`                    | Deployer IAM user (ECR push, for GitHub Actions) + EC2 instance profile (ECR pull) |
+| `infra/ecr.tf`                    | ECR repo `biettuotbot`, lifecycle: keep 5 untagged + 10 any                 |
+| `infra/ec2.tf`                    | t3.micro, AL2023, 30 GB gp3; user_data installs Docker + swap + ECR credential helper |
+| `infra/outputs.tf`                | `ec2_public_ip`, `ecr_repository_url`, `deployer_access_key_id/secret`      |
+| `infra/terraform.tfvars.example`  | Template for `terraform.tfvars` (gitignored)                                |
+| `infra/.gitignore`                | Ignores `.terraform/`, `*.tfstate`, `terraform.tfvars`, `.terraform.lock.hcl` |
+
+### Infrastructure Facts
+
+- **EC2 IP**: `masked_ip` (Elastic IP — static)
+- **SSH**: `ssh -i ~/.ssh/biettuotbot-key.pem ec2-user@masked_ip`
+- **`.env` on EC2**: `/home/ec2-user/biettuotbot/.env`
+- **ECR registry**: `<account_id>.dkr.ecr.ap-southeast-1.amazonaws.com/biettuotbot`
+- **EC2 pulls** from ECR via instance profile (no AWS credentials on the instance itself)
+- **GitHub Actions** uses deployer IAM access key (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` secrets)
+- **Required secrets**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `EC2_HOST`, `EC2_SSH_KEY`
+- **Terraform state**: local (`infra/terraform.tfstate`) — not in S3
+- **Terraform version**: >= v1.5, AWS provider ~5.0
+
+### CI/CD Flow
+
+1. `git push origin main`
+2. GitHub Actions: checkout → AWS credentials → ECR login → `docker build` → `docker push`
+3. SSH into EC2 → `docker pull` → `docker stop/rm` old container → `docker run --env-file .env`
+4. Old images pruned automatically
+
+### Key Terraform Commands
+
+```bash
+cd infra/
+terraform init
+terraform plan
+terraform apply
+terraform output ec2_public_ip
+terraform output -raw deployer_secret_access_key
+```
