@@ -9,7 +9,8 @@
 
 | Date       | Change                                                                                                                                                                                                                                                                                                                                      |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-04-02 | Infra & deployment: multi-stage Dockerfile (node:22-alpine), docker-compose.yml (local dev), .dockerignore, GitHub Actions CI/CD (build→ECR push→SSH deploy), Terraform IaC in `infra/` (EC2 t3.micro ap-southeast-1, ECR, IAM deployer+instance-profile, SG, EIP, 30 GB gp3). EC2 live at `masked_ip`. |
+| 2026-04-05 | Gold market tools: new `gold/` topic folder with `gold_get_prices` (VN domestic + world gold from webgia.com) and `gold_get_news` (CafeF JSON API). Updated TOOL_ROUTING with GOLD source isolation, reasoner ideal flow, PURE DATA rule. Total tools: 20→22.                                                                               |
+| 2026-04-02 | Infra & deployment: multi-stage Dockerfile (node:22-alpine), docker-compose.yml (local dev), .dockerignore, GitHub Actions CI/CD (build→ECR push→SSH deploy), Terraform IaC in `infra/` (EC2 t3.micro ap-southeast-1, ECR, IAM deployer+instance-profile, SG, EIP, 30 GB gp3). EC2 live at `masked_ip`.                                     |
 | 2026-04-02 | Prompt tuning: strict source isolation (crypto→crypto tools, stock→KBS+CafeF, VnExpress→general news only), parallel tool-call instructions in shared `TOOL_ROUTING`, ideal flows with step notation in reasoner, mandatory language-match rule, `MAX_HISTORY_REASONER` 20→10, `experimental_onStepStart` logging for per-step LLM context. |
 | 2026-04-01 | Performance upgrade: unified HTTP instances (`kbsHttp`), smarter caching (max-period OHLCV, per-symbol price board, cross-populate crypto, VnExpress eviction), cache warmup, slimmed TOOL_ROUTING, stripped tool results from history, memoized `buildTools()`.                                                                            |
 | 2026-04-01 | Refactored flat `src/*.ts` data sources into `src/tools/` topic folders (`crypto/`, `vn-stock/`, `news/`). Slimmed `server.ts` to thin orchestrator. Shared axios instances moved to `_shared/http.ts`.                                                                                                                                     |
@@ -26,7 +27,7 @@ BietTuotBot is a **Telegram chatbot** backed by an **MCP (Model Context Protocol
 - **LLM layer**: Vercel AI SDK — supports OpenAI, Anthropic, Google Gemini, Ollama, DeepSeek, Groq
 - **Bot layer**: grammY (Telegram)
 - **MCP transport**: StreamableHTTP at `:3001/mcp`
-- **Total MCP tools**: 20
+- **Total MCP tools**: 23
 
 ---
 
@@ -72,11 +73,16 @@ src/
 │   │   ├── stock-technical.ts  # SMA/EMA/RSI/MACD computation + ATH/ATL from full history
 │   │   ├── stock-news.ts       # CafeF: company news + insider trading
 │   │   └── index.ts            # registerVnStockTools(server) — 9 tools
-│   └── news/
-│       ├── vnexpress.ts        # VnExpress RSS feeds + article content + search
-│       ├── macro-news.ts       # CafeF macro/market news by category
-│       ├── article-reader.ts   # CafeF full article content reader
-│       └── index.ts            # registerNewsTools(server) — 5 tools
+│   ├── news/
+│   │   ├── vnexpress.ts        # VnExpress RSS feeds + article content + search
+│   │   ├── macro-news.ts       # CafeF macro/market news by category
+│   │   ├── article-reader.ts   # CafeF full article content reader
+│   │   └── index.ts            # registerNewsTools(server) — 5 tools
+│   └── gold/
+│       ├── gold-market.ts      # webgia.com: VN domestic prices + world gold price
+│       ├── gold-technical.ts   # Yahoo Finance GC=F: RSI/SMA/EMA/MACD for world gold
+│       ├── gold-news.ts        # CafeF gold news JSON API
+│       └── index.ts            # registerGoldTools(server) — 3 tools
 └── skills/              # (reserved for future skill definitions)
 ```
 
@@ -91,7 +97,7 @@ src/
 
 ---
 
-## 20 MCP Tools — Quick Reference
+## 23 MCP Tools — Quick Reference
 
 | Topic folder | Tool name                       | What it does                                                      |
 | ------------ | ------------------------------- | ----------------------------------------------------------------- |
@@ -115,6 +121,9 @@ src/
 | `news`       | `vnexpress_get_article_content` | Full VnExpress article by URL or ID                               |
 | `news`       | `cafef_get_macro_news`          | Macro/market news: chung-khoan/vi-mo/quoc-te/thi-truong/ngan-hang |
 | `news`       | `cafef_get_article_content`     | Full CafeF article by URL                                         |
+| `gold`       | `gold_get_prices`               | Vietnam domestic + world gold prices (webgia.com)                 |
+| `gold`       | `gold_get_news`                 | Gold market news from CafeF (JSON API)                            |
+| `gold`       | `gold_get_technical`            | World gold RSI/SMA/EMA/MACD from Yahoo Finance (GC=F)             |
 
 > **Tool names are stable identifiers** — do NOT rename them. The system prompt in `src/prompts/system.ts` and AI call history both reference these names.
 
@@ -163,6 +172,9 @@ src/
 | VnExpress RSS              | vnexpress                                                         | 5 min (feeds), 60 min (articles)   |
 | cryptocurrency.cv RSS      | crypto-news                                                       | 5 min                              |
 | ThuanCapital HTML scraping | crypto-news                                                       | 5 min                              |
+| webgia.com HTML scraping   | gold-market                                                       | 5 min                              |
+| Yahoo Finance API          | gold-technical (GC=F futures OHLC)                                | 5 min                              |
+| CafeF Gold News JSON API   | gold-news                                                         | 10 min                             |
 
 ### Cache Architecture
 
@@ -179,7 +191,7 @@ src/
 - **Tool result stripping**: After `generateText()`, all `role: "tool"` message contents are replaced with `"ok"` stubs before storing in history. This prevents multi-thousand-token OHLCV arrays and article content from bloating subsequent API calls. The stub preserves `tool_call_id` so the API doesn't see orphan tool calls.
 - **History limit**: `MAX_HISTORY_CHAT = 20`, `MAX_HISTORY_REASONER = 10` messages. With tool results stripped, this keeps context lean for faster LLM calls.
 - **Memoized tools**: `buildTools()` runs once in `initialize()` and is cached as `cachedTools`. Per-call `notifyUser` callback is swapped via a mutable `notifyUserRef`.
-- **TOOL_ROUTING**: ~30 lines of routing-only rules in `src/prompts/system.ts`. Includes strict **source isolation** (crypto→crypto*\* only, stock→stock*_+cafef\__ only, VnExpress→general news only), **parallel tool-call** instruction, "PURE DATA vs ANALYSIS" guard, and dedup rules. Per-tool descriptions live in each tool's `description` field, not in the system prompt.
+- **TOOL_ROUTING**: ~30 lines of routing-only rules in `src/prompts/system.ts`. Includes strict **source isolation** (crypto→crypto*\* only, stock→stock*\_+cafef\_\_ only, VnExpress→general news only), **parallel tool-call** instruction, "PURE DATA vs ANALYSIS" guard, and dedup rules. Per-tool descriptions live in each tool's `description` field, not in the system prompt.
 - **Reasoner ideal flows**: Step-by-step parallel notation targeting 2-3 LLM round-trips per response. MAX 7 tool calls per response.
 - **Language rule**: Both prompts have a top-level `LANGUAGE — MANDATORY` section requiring responses match the user's language, even when tool data is English.
 - **Per-step logging**: `experimental_onStepStart` callback logs message count and compact content summary before each LLM API call within the multi-step loop.
@@ -213,21 +225,21 @@ The bot is deployed on **AWS EC2** in `ap-southeast-1` (Singapore) via Docker + 
 
 ### Files
 
-| File                              | Purpose                                                                     |
-| --------------------------------- | --------------------------------------------------------------------------- |
-| `Dockerfile`                      | Multi-stage build: `builder` (npm ci + tsc), `production` (runtime only)    |
-| `docker-compose.yml`              | Local dev only — mounts `.env`, log rotation 10m/3 files                    |
-| `.dockerignore`                   | Excludes `node_modules`, `lib`, `.git`, `.env`, `infra`, `*.md`, etc.       |
-| `.github/workflows/deploy.yml`    | CI/CD: push to `main` → build image → ECR push → SSH deploy to EC2          |
-| `infra/main.tf`                   | AWS provider + dynamic AL2023 AMI data source + caller identity              |
-| `infra/variables.tf`              | `aws_region=ap-southeast-1`, `instance_type=t3.micro`, `key_pair_name`, `my_ip` |
-| `infra/networking.tf`             | Security group (SSH port 22 from `my_ip` only) + Elastic IP                |
-| `infra/iam.tf`                    | Deployer IAM user (ECR push, for GitHub Actions) + EC2 instance profile (ECR pull) |
-| `infra/ecr.tf`                    | ECR repo `biettuotbot`, lifecycle: keep 5 untagged + 10 any                 |
-| `infra/ec2.tf`                    | t3.micro, AL2023, 30 GB gp3; user_data installs Docker + swap + ECR credential helper |
-| `infra/outputs.tf`                | `ec2_public_ip`, `ecr_repository_url`, `deployer_access_key_id/secret`      |
-| `infra/terraform.tfvars.example`  | Template for `terraform.tfvars` (gitignored)                                |
-| `infra/.gitignore`                | Ignores `.terraform/`, `*.tfstate`, `terraform.tfvars`, `.terraform.lock.hcl` |
+| File                             | Purpose                                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| `Dockerfile`                     | Multi-stage build: `builder` (npm ci + tsc), `production` (runtime only)              |
+| `docker-compose.yml`             | Local dev only — mounts `.env`, log rotation 10m/3 files                              |
+| `.dockerignore`                  | Excludes `node_modules`, `lib`, `.git`, `.env`, `infra`, `*.md`, etc.                 |
+| `.github/workflows/deploy.yml`   | CI/CD: push to `main` → build image → ECR push → SSH deploy to EC2                    |
+| `infra/main.tf`                  | AWS provider + dynamic AL2023 AMI data source + caller identity                       |
+| `infra/variables.tf`             | `aws_region=ap-southeast-1`, `instance_type=t3.micro`, `key_pair_name`, `my_ip`       |
+| `infra/networking.tf`            | Security group (SSH port 22 from `my_ip` only) + Elastic IP                           |
+| `infra/iam.tf`                   | Deployer IAM user (ECR push, for GitHub Actions) + EC2 instance profile (ECR pull)    |
+| `infra/ecr.tf`                   | ECR repo `biettuotbot`, lifecycle: keep 5 untagged + 10 any                           |
+| `infra/ec2.tf`                   | t3.micro, AL2023, 30 GB gp3; user_data installs Docker + swap + ECR credential helper |
+| `infra/outputs.tf`               | `ec2_public_ip`, `ecr_repository_url`, `deployer_access_key_id/secret`                |
+| `infra/terraform.tfvars.example` | Template for `terraform.tfvars` (gitignored)                                          |
+| `infra/.gitignore`               | Ignores `.terraform/`, `*.tfstate`, `terraform.tfvars`, `.terraform.lock.hcl`         |
 
 ### Infrastructure Facts
 

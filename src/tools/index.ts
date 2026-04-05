@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerCryptoTools } from "./crypto/index.js";
 import { registerVnStockTools } from "./vn-stock/index.js";
 import { registerNewsTools } from "./news/index.js";
+import { registerGoldTools } from "./gold/index.js";
 import { fetchTopCoins, fetchGlobalData, fetchTrending } from "./crypto/crypto-market.js";
 import { fetchTopVolume, fetchForeignRanking } from "./vn-stock/stock-market.js";
 
@@ -9,6 +10,7 @@ export function registerAllTools(server: McpServer): void {
   registerCryptoTools(server);
   registerVnStockTools(server);
   registerNewsTools(server);
+  registerGoldTools(server);
 }
 
 export async function warmupCaches(): Promise<void> {
