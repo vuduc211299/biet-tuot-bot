@@ -3,7 +3,7 @@ import { z } from "zod";
 import { logTool } from "../_shared/http.js";
 import { fetchInterestRates } from "./realestate-interest.js";
 import { fetchRealEstateNews, fetchBdsArticleContent } from "./realestate-news.js";
-import { fetchListings, fetchListingDetail } from "./realestate-listings.js";
+import { fetchListings, fetchListingDetail, buildNhaTotUrls } from "./realestate-listings.js";
 
 export function registerVnRealestateTools(server: McpServer): void {
   // ─── Tool 1: Interest Rates ───
@@ -24,8 +24,9 @@ export function registerVnRealestateTools(server: McpServer): void {
     async ({ channel }) => {
       try {
         const data = await fetchInterestRates(channel ?? "all");
-        logTool("realestate_get_interest_rates", { channel }, data);
-        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+        const result = { ...data, sourceUrl: "https://webgia.com/lai-suat-ngan-hang/" };
+        logTool("realestate_get_interest_rates", { channel }, result);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { content: [{ type: "text", text: `[TOOL_ERROR] realestate_get_interest_rates: ${msg}` }], isError: true };
@@ -54,8 +55,15 @@ export function registerVnRealestateTools(server: McpServer): void {
     async ({ source, limit }) => {
       try {
         const news = await fetchRealEstateNews(source ?? "all", limit ?? 15);
-        logTool("realestate_get_news", { source, limit }, news);
-        return { content: [{ type: "text", text: JSON.stringify(news, null, 2) }] };
+        const result = {
+          articles: news,
+          sourceUrls: {
+            cafef: "https://cafef.vn/bat-dong-san.chn",
+            batdongsan: "https://wiki.batdongsan.com.vn/tin-tuc",
+          },
+        };
+        logTool("realestate_get_news", { source, limit }, result);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { content: [{ type: "text", text: `[TOOL_ERROR] realestate_get_news: ${msg}` }], isError: true };
@@ -116,7 +124,9 @@ export function registerVnRealestateTools(server: McpServer): void {
     },
     async ({ type, city, propertyType, keyword, priceRange, areaRange, limit }) => {
       try {
-        const result = await fetchListings({ type, city, propertyType, keyword, priceRange, areaRange, limit: limit ?? 10 });
+        const data = await fetchListings({ type, city, propertyType, keyword, priceRange, areaRange, limit: limit ?? 10 });
+        const urls = buildNhaTotUrls(type, city, propertyType);
+        const result = { ...data, ...urls };
         logTool("realestate_search_listings", { type, city, propertyType, keyword, priceRange, areaRange, limit }, result);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err) {

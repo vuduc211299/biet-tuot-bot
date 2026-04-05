@@ -94,6 +94,54 @@ const REGION_MAP: Record<string, number> = {
   "quang-ninh": 16000,
 };
 
+/** NhaTot web URL slug for property types */
+const PROPERTY_URL_SLUG: Record<string, string> = {
+  "all": "bat-dong-san",
+  "can-ho": "can-ho-chung-cu",
+  "chung-cu": "can-ho-chung-cu",
+  "nha-rieng": "nha-dat",
+  "nha-o": "nha-dat",
+  "dat": "dat",
+  "dat-nen": "dat",
+  "van-phong": "van-phong-mat-bang",
+  "mat-bang": "van-phong-mat-bang",
+  "phong-tro": "phong-tro",
+};
+
+/** NhaTot web URL slug for cities */
+const CITY_URL_SLUG: Record<string, string> = {
+  "ha-noi": "ha-noi",
+  "hanoi": "ha-noi",
+  "hcm": "tp-ho-chi-minh",
+  "ho-chi-minh": "tp-ho-chi-minh",
+  "tp-hcm": "tp-ho-chi-minh",
+  "da-nang": "da-nang",
+  "hai-phong": "hai-phong",
+  "can-tho": "can-tho",
+  "binh-duong": "binh-duong",
+  "dong-nai": "dong-nai",
+  "ba-ria-vung-tau": "ba-ria-vung-tau",
+  "khanh-hoa": "khanh-hoa",
+  "quang-ninh": "quang-ninh",
+};
+
+/** Build nhatot.com reference URLs for search results and price reference page */
+export function buildNhaTotUrls(type: string, city?: string, propertyType?: string): {
+  searchUrl: string;
+  priceReferenceUrl: string;
+} {
+  const isBuy = type !== "cho-thue" && type !== "thue";
+  const prefix = isBuy ? "mua-ban" : "cho-thue";
+  const propSlug = PROPERTY_URL_SLUG[propertyType ?? "all"] ?? "bat-dong-san";
+  const citySlug = city ? (CITY_URL_SLUG[city.toLowerCase()] ?? "") : "";
+
+  const suffix = citySlug ? `${propSlug}-${citySlug}` : propSlug;
+  return {
+    searchUrl: `https://www.nhatot.com/${prefix}-${suffix}`,
+    priceReferenceUrl: `https://www.nhatot.com/tham-khao-gia-${prefix}-${suffix}`,
+  };
+}
+
 // ─── Caches ───
 
 const listingCache = new Map<string, { data: ListingItem[]; timestamp: number }>();
