@@ -7,15 +7,17 @@
 
 ## Changelog
 
-| Date       | Change                                                                                                                                                                                                                                                                                                                                      |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-04-05 | Gold market tools: new `gold/` topic folder with `gold_get_prices` (VN domestic + world gold from webgia.com) and `gold_get_news` (CafeF JSON API). Updated TOOL_ROUTING with GOLD source isolation, reasoner ideal flow, PURE DATA rule. Total tools: 20→22.                                                                               |
-| 2026-04-02 | Infra & deployment: multi-stage Dockerfile (node:22-alpine), docker-compose.yml (local dev), .dockerignore, GitHub Actions CI/CD (build→ECR push→SSH deploy), Terraform IaC in `infra/` (EC2 t3.micro ap-southeast-1, ECR, IAM deployer+instance-profile, SG, EIP, 30 GB gp3). EC2 live at `masked_ip`.                                     |
-| 2026-04-02 | Prompt tuning: strict source isolation (crypto→crypto tools, stock→KBS+CafeF, VnExpress→general news only), parallel tool-call instructions in shared `TOOL_ROUTING`, ideal flows with step notation in reasoner, mandatory language-match rule, `MAX_HISTORY_REASONER` 20→10, `experimental_onStepStart` logging for per-step LLM context. |
-| 2026-04-01 | Performance upgrade: unified HTTP instances (`kbsHttp`), smarter caching (max-period OHLCV, per-symbol price board, cross-populate crypto, VnExpress eviction), cache warmup, slimmed TOOL_ROUTING, stripped tool results from history, memoized `buildTools()`.                                                                            |
-| 2026-04-01 | Refactored flat `src/*.ts` data sources into `src/tools/` topic folders (`crypto/`, `vn-stock/`, `news/`). Slimmed `server.ts` to thin orchestrator. Shared axios instances moved to `_shared/http.ts`.                                                                                                                                     |
-| 2026-04-01 | Rewrote `TOOL_ROUTING` in `src/prompts/system.ts` to match new 3-folder topic structure.                                                                                                                                                                                                                                                    |
-| 2026-04-01 | Initial project setup: Telegram bot + MCP server + 20 tools across 5 data sources.                                                                                                                                                                                                                                                          |
+| Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-04-06 | VN Real Estate: replaced batdongsan.com.vn (CloudFlare blocked) with Chotot/NhaTot public API (`gateway.chotot.com`). `realestate_search_listings` now uses Chotot JSON API (filters: city, type, keyword, price/size range). Replaced `realestate_get_price_history` with `realestate_get_listing_detail` (Chotot listing detail). Removed batdongsan.com.vn scraping, cheerio dep, CF cookie logic. Tools still 28 (5 realestate).                         |
+| 2026-04-06 | VN Real Estate tools: new `vn-realestate/` topic folder with 5 tools — `realestate_get_interest_rates` (webgia.com bank savings rates), `realestate_get_news` (CafeF BĐS + batdongsan wiki), `realestate_get_article_content` (wiki reader), `realestate_search_listings` (Chotot/NhaTot API), `realestate_get_listing_detail` (Chotot listing detail). Updated TOOL_ROUTING with VN REAL ESTATE source isolation, reasoner ideal flows. Total tools: 23→28. |
+| 2026-04-05 | Gold market tools: new `gold/` topic folder with `gold_get_prices` (VN domestic + world gold from webgia.com) and `gold_get_news` (CafeF JSON API). Updated TOOL_ROUTING with GOLD source isolation, reasoner ideal flow, PURE DATA rule. Total tools: 20→22.                                                                                                                                                                                                |
+| 2026-04-02 | Infra & deployment: multi-stage Dockerfile (node:22-alpine), docker-compose.yml (local dev), .dockerignore, GitHub Actions CI/CD (build→ECR push→SSH deploy), Terraform IaC in `infra/` (EC2 t3.micro ap-southeast-1, ECR, IAM deployer+instance-profile, SG, EIP, 30 GB gp3). EC2 live at `masked_ip`.                                                                                                                                                      |
+| 2026-04-02 | Prompt tuning: strict source isolation (crypto→crypto tools, stock→KBS+CafeF, VnExpress→general news only), parallel tool-call instructions in shared `TOOL_ROUTING`, ideal flows with step notation in reasoner, mandatory language-match rule, `MAX_HISTORY_REASONER` 20→10, `experimental_onStepStart` logging for per-step LLM context.                                                                                                                  |
+| 2026-04-01 | Performance upgrade: unified HTTP instances (`kbsHttp`), smarter caching (max-period OHLCV, per-symbol price board, cross-populate crypto, VnExpress eviction), cache warmup, slimmed TOOL_ROUTING, stripped tool results from history, memoized `buildTools()`.                                                                                                                                                                                             |
+| 2026-04-01 | Refactored flat `src/*.ts` data sources into `src/tools/` topic folders (`crypto/`, `vn-stock/`, `news/`). Slimmed `server.ts` to thin orchestrator. Shared axios instances moved to `_shared/http.ts`.                                                                                                                                                                                                                                                      |
+| 2026-04-01 | Rewrote `TOOL_ROUTING` in `src/prompts/system.ts` to match new 3-folder topic structure.                                                                                                                                                                                                                                                                                                                                                                     |
+| 2026-04-01 | Initial project setup: Telegram bot + MCP server + 20 tools across 5 data sources.                                                                                                                                                                                                                                                                                                                                                                           |
 
 ---
 
@@ -27,7 +29,7 @@ BietTuotBot is a **Telegram chatbot** backed by an **MCP (Model Context Protocol
 - **LLM layer**: Vercel AI SDK — supports OpenAI, Anthropic, Google Gemini, Ollama, DeepSeek, Groq
 - **Bot layer**: grammY (Telegram)
 - **MCP transport**: StreamableHTTP at `:3001/mcp`
-- **Total MCP tools**: 23
+- **Total MCP tools**: 28
 
 ---
 
@@ -60,7 +62,7 @@ src/
 │   ├── commands.ts      # Per-command prompt builders (/news, /market, /plan, /analysis)
 │   └── index.ts         # Re-exports
 ├── tools/
-│   ├── index.ts         # registerAllTools(server) — calls all 3 topic registers
+│   ├── index.ts         # registerAllTools(server) — calls all 5 topic registers
 │   ├── _shared/
 │   │   └── http.ts      # Shared utilities: http (axios), coingeckoHttp (axios), isFresh(), fetchWithRetry(), logTool()
 │   ├── crypto/
@@ -83,6 +85,11 @@ src/
 │       ├── gold-technical.ts   # Yahoo Finance GC=F: RSI/SMA/EMA/MACD for world gold
 │       ├── gold-news.ts        # CafeF gold news JSON API
 │       └── index.ts            # registerGoldTools(server) — 3 tools
+│   └── vn-realestate/
+│       ├── realestate-interest.ts  # webgia.com: VN bank savings interest rates (29+ banks)
+│       ├── realestate-news.ts      # CafeF BĐS + batdongsan wiki news + article reader
+│       ├── realestate-listings.ts  # Chotot/NhaTot: listing search + listing detail (gateway.chotot.com)
+│       └── index.ts                # registerVnRealestateTools(server) — 5 tools
 └── skills/              # (reserved for future skill definitions)
 ```
 
@@ -97,33 +104,38 @@ src/
 
 ---
 
-## 23 MCP Tools — Quick Reference
+## 28 MCP Tools — Quick Reference
 
-| Topic folder | Tool name                       | What it does                                                      |
-| ------------ | ------------------------------- | ----------------------------------------------------------------- |
-| `vn-stock`   | `stock_vn_overview`             | Top volume + foreign flow (KBS)                                   |
-| `vn-stock`   | `stock_get_ohlcv`               | Historical OHLCV for 1 symbol                                     |
-| `vn-stock`   | `stock_get_index`               | Index OHLCV (VNINDEX/HNX/UPCOM/VN30)                              |
-| `vn-stock`   | `stock_price_board`             | Real-time price board, multiple symbols                           |
-| `vn-stock`   | `stock_get_profile`             | Company profile (KBS)                                             |
-| `vn-stock`   | `stock_get_technical`           | All-in-one: SMA/EMA/RSI/MACD/ATH/ATL                              |
-| `vn-stock`   | `cafef_get_company_news`        | Company news & events (CafeF)                                     |
-| `vn-stock`   | `cafef_get_insider_trading`     | Insider/shareholder disclosures (CafeF)                           |
-| `vn-stock`   | `cafef_get_financials`          | P/E, EPS, P/B, market cap (CafeF)                                 |
-| `crypto`     | `crypto_get_overview`           | Global market cap, BTC dominance, top 10, trending                |
-| `crypto`     | `crypto_get_prices`             | Prices for specific coins by CoinGecko ID                         |
-| `crypto`     | `crypto_get_technical`          | RSI/SMA/EMA/MACD/ATH/ATL + supply                                 |
-| `crypto`     | `cryptocurrency_get_news`       | English crypto news (200+ sources)                                |
-| `crypto`     | `thuancapital_get_news`         | Vietnamese crypto: tin-tuc or kien-thuc                           |
-| `crypto`     | `thuancapital_get_article`      | Full ThuanCapital article by URL                                  |
-| `news`       | `vnexpress_get_latest_news`     | Latest VnExpress by category (8 categories)                       |
-| `news`       | `vnexpress_search_news`         | Keyword search across VnExpress                                   |
-| `news`       | `vnexpress_get_article_content` | Full VnExpress article by URL or ID                               |
-| `news`       | `cafef_get_macro_news`          | Macro/market news: chung-khoan/vi-mo/quoc-te/thi-truong/ngan-hang |
-| `news`       | `cafef_get_article_content`     | Full CafeF article by URL                                         |
-| `gold`       | `gold_get_prices`               | Vietnam domestic + world gold prices (webgia.com)                 |
-| `gold`       | `gold_get_news`                 | Gold market news from CafeF (JSON API)                            |
-| `gold`       | `gold_get_technical`            | World gold RSI/SMA/EMA/MACD from Yahoo Finance (GC=F)             |
+| Topic folder    | Tool name                        | What it does                                                      |
+| --------------- | -------------------------------- | ----------------------------------------------------------------- |
+| `vn-stock`      | `stock_vn_overview`              | Top volume + foreign flow (KBS)                                   |
+| `vn-stock`      | `stock_get_ohlcv`                | Historical OHLCV for 1 symbol                                     |
+| `vn-stock`      | `stock_get_index`                | Index OHLCV (VNINDEX/HNX/UPCOM/VN30)                              |
+| `vn-stock`      | `stock_price_board`              | Real-time price board, multiple symbols                           |
+| `vn-stock`      | `stock_get_profile`              | Company profile (KBS)                                             |
+| `vn-stock`      | `stock_get_technical`            | All-in-one: SMA/EMA/RSI/MACD/ATH/ATL                              |
+| `vn-stock`      | `cafef_get_company_news`         | Company news & events (CafeF)                                     |
+| `vn-stock`      | `cafef_get_insider_trading`      | Insider/shareholder disclosures (CafeF)                           |
+| `vn-stock`      | `cafef_get_financials`           | P/E, EPS, P/B, market cap (CafeF)                                 |
+| `crypto`        | `crypto_get_overview`            | Global market cap, BTC dominance, top 10, trending                |
+| `crypto`        | `crypto_get_prices`              | Prices for specific coins by CoinGecko ID                         |
+| `crypto`        | `crypto_get_technical`           | RSI/SMA/EMA/MACD/ATH/ATL + supply                                 |
+| `crypto`        | `cryptocurrency_get_news`        | English crypto news (200+ sources)                                |
+| `crypto`        | `thuancapital_get_news`          | Vietnamese crypto: tin-tuc or kien-thuc                           |
+| `crypto`        | `thuancapital_get_article`       | Full ThuanCapital article by URL                                  |
+| `news`          | `vnexpress_get_latest_news`      | Latest VnExpress by category (8 categories)                       |
+| `news`          | `vnexpress_search_news`          | Keyword search across VnExpress                                   |
+| `news`          | `vnexpress_get_article_content`  | Full VnExpress article by URL or ID                               |
+| `news`          | `cafef_get_macro_news`           | Macro/market news: chung-khoan/vi-mo/quoc-te/thi-truong/ngan-hang |
+| `news`          | `cafef_get_article_content`      | Full CafeF article by URL                                         |
+| `gold`          | `gold_get_prices`                | Vietnam domestic + world gold prices (webgia.com)                 |
+| `gold`          | `gold_get_news`                  | Gold market news from CafeF (JSON API)                            |
+| `gold`          | `gold_get_technical`             | World gold RSI/SMA/EMA/MACD from Yahoo Finance (GC=F)             |
+| `vn-realestate` | `realestate_get_interest_rates`  | VN bank savings rates, 29+ banks, 10 terms (webgia.com)           |
+| `vn-realestate` | `realestate_get_news`            | BĐS news from CafeF + batdongsan wiki (60-day filter)             |
+| `vn-realestate` | `realestate_get_article_content` | Full batdongsan wiki article reader                               |
+| `vn-realestate` | `realestate_search_listings`     | Property listing search on Chotot/NhaTot (gateway.chotot.com)     |
+| `vn-realestate` | `realestate_get_listing_detail`  | Full listing detail from Chotot/NhaTot by listing ID              |
 
 > **Tool names are stable identifiers** — do NOT rename them. The system prompt in `src/prompts/system.ts` and AI call history both reference these names.
 
@@ -172,9 +184,12 @@ src/
 | VnExpress RSS              | vnexpress                                                         | 5 min (feeds), 60 min (articles)   |
 | cryptocurrency.cv RSS      | crypto-news                                                       | 5 min                              |
 | ThuanCapital HTML scraping | crypto-news                                                       | 5 min                              |
-| webgia.com HTML scraping   | gold-market                                                       | 5 min                              |
+| webgia.com HTML scraping   | gold-market, realestate-interest                                  | 5 min (gold), 30 min (rates)       |
 | Yahoo Finance API          | gold-technical (GC=F futures OHLC)                                | 5 min                              |
 | CafeF Gold News JSON API   | gold-news                                                         | 10 min                             |
+| CafeF BĐS HTML scraping    | realestate-news                                                   | 5 min                              |
+| batdongsan wiki scraping   | realestate-news, realestate-article                               | 5 min (news), 1 hr (articles)      |
+| Chotot/NhaTot JSON API     | realestate-listings (gateway.chotot.com)                          | 5 min (listings), 30 min (detail)  |
 
 ### Cache Architecture
 
