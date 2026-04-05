@@ -3,8 +3,10 @@ import { LlmAssistant, type LlmMode } from "./llm.js";
 import {
   buildWelcomeMessage,
   buildNewsPrompt,
-  MARKET_PROMPT,
-  buildPlanPrompt,
+  STOCK_PROMPT,
+  CRYPTO_PROMPT,
+  BDS_PROMPT,
+  GOLD_PROMPT,
   buildAnalysisPrompt,
 } from "./prompts/index.js";
 
@@ -279,24 +281,43 @@ export class TelegramNewsBot {
     // /news [topic]
     this.bot.command("news", async ctx => {
       const topic = ctx.match?.trim();
-      await this.handleUserMessage(ctx, buildNewsPrompt(topic));
+      const prompt = buildNewsPrompt(topic);
+      if (!prompt) {
+        await ctx.reply("📰 Please provide a topic. Example: /news bitcoin, /news inflation");
+        return;
+      }
+      await this.handleUserMessage(ctx, prompt);
     });
 
-    // /market
-    this.bot.command("market", async ctx => {
-      await this.handleUserMessage(ctx, MARKET_PROMPT);
+    // /stock
+    this.bot.command("stock", async ctx => {
+      await this.handleUserMessage(ctx, STOCK_PROMPT);
     });
 
-    // /plan [crypto|stock]
-    this.bot.command("plan", async ctx => {
-      const market = ctx.match?.trim() || "crypto";
-      await this.handleUserMessage(ctx, buildPlanPrompt(market));
+    // /crypto
+    this.bot.command("crypto", async ctx => {
+      await this.handleUserMessage(ctx, CRYPTO_PROMPT);
+    });
+
+    // /bds
+    this.bot.command("bds", async ctx => {
+      await this.handleUserMessage(ctx, BDS_PROMPT);
+    });
+
+    // /gold
+    this.bot.command("gold", async ctx => {
+      await this.handleUserMessage(ctx, GOLD_PROMPT);
     });
 
     // /analysis [topic] — deep analysis, always uses reasoner mode
     this.bot.command("analysis", async ctx => {
       const topic = ctx.match?.trim();
-      await this.handleUserMessage(ctx, buildAnalysisPrompt(topic), "reasoner");
+      const prompt = buildAnalysisPrompt(topic);
+      if (!prompt) {
+        await ctx.reply("🧠 Please provide a topic. Example: /analysis bitcoin, /analysis VNINDEX");
+        return;
+      }
+      await this.handleUserMessage(ctx, prompt, "reasoner");
     });
 
     // /reset
@@ -371,10 +392,12 @@ export class TelegramNewsBot {
 
     // Set bot commands for Telegram menu
     await this.bot.api.setMyCommands([
-      { command: "news", description: "Latest news + analysis" },
-      { command: "market", description: "Crypto + VN stock overview" },
-      { command: "plan", description: "Trading plan [crypto|stock]" },
-      { command: "analysis", description: "🧠 Deep analysis — reasoner mode [topic]" },
+      { command: "news", description: "Latest news by topic [topic]" },
+      { command: "stock", description: "Vietnam stock market update" },
+      { command: "crypto", description: "Crypto market update" },
+      { command: "bds", description: "Real estate news" },
+      { command: "gold", description: "Gold prices (domestic & world)" },
+      { command: "analysis", description: "🧠 Deep analysis [topic]" },
       { command: "reset", description: "Clear conversation history" },
       { command: "status", description: "Bot status & chat info" },
     ]);

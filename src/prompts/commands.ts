@@ -5,9 +5,11 @@ export function buildWelcomeMessage(name: string): string {
     `👋 *Hello ${name}!*\n\n` +
     `I'm your independent financial & news analysis assistant.\n\n` +
     `*Available commands:*\n` +
-    `/news [topic] — Latest news + analysis\n` +
-    `/market — Crypto + VN stock overview\n` +
-    `/plan [crypto|stock] — Trading plan\n` +
+    `/news [topic] — Latest news by topic\n` +
+    `/stock — Vietnam stock market update\n` +
+    `/crypto — Crypto market update\n` +
+    `/bds — Real estate news\n` +
+    `/gold — Gold prices (domestic & world)\n` +
     `/analysis [topic] — 🧠 Deep analysis (reasoner mode)\n` +
     `/reset — Clear conversation history\n\n` +
     `Or just ask me anything! 💬\n` +
@@ -18,19 +20,24 @@ export function buildWelcomeMessage(name: string): string {
 
 export function buildNewsPrompt(topic?: string): string {
   return topic
-    ? `Hãy tìm kiếm: ${topic}`
-    : "Hãy lấy tin tức mới nhất từ các công cụ bạn có";
+    ? `Search and get the latest news about: ${topic}`
+    : "";
 }
 
-export const MARKET_PROMPT =
-  "Gọi crypto_get_overview để lấy dữ liệu crypto (top coins, BTC dominance, trending) và stock_vn_overview để lấy top cổ phiếu VN (khối lượng, dòng tiền ngoại). Trình bày dạng bullet list ngắn gọn.";
+export const STOCK_PROMPT =
+  "Get the latest Vietnam stock market update. Call stock_vn_overview for top stocks (volume, foreign flow), stock_get_index for VNINDEX, and cafef_get_macro_news(category='chung-khoan') for market headlines. Present as a concise bullet list.";
 
-export function buildPlanPrompt(market: string): string {
-  return `Đề xuất trading plan cho thị trường ${market} trong tuần này. Bao gồm: watchlist, entry/exit zone, stop-loss, key catalysts cần theo dõi${market === "stock" ? ", chỉ số kỹ thuật (RSI/MACD/SMA) và định giá (P/E, EPS)" : ""}.`;
-}
+export const CRYPTO_PROMPT =
+  "Get the latest crypto market update. Call crypto_get_overview for market data (top coins, BTC dominance, trending) and cryptocurrency_get_news for headlines. Present as a concise bullet list.";
+
+export const BDS_PROMPT =
+  "Get the latest Vietnam real estate news update. Call realestate_get_news and realestate_get_interest_rates for BDS news and bank interest rates. Present as a concise bullet list. Do NOT call realestate_search_listings.";
+
+export const GOLD_PROMPT =
+  "Get the latest domestic and world gold price update. Call gold_get_prices for gold prices and gold_get_news for gold news. Present as a concise bullet list.";
 
 export function buildAnalysisPrompt(topic?: string): string {
   return topic
-    ? `Phân tích chuyên sâu về: ${topic}. Đánh giá đa chiều, đưa ra nhận định độc lập và dự báo xu hướng.`
-    : "Phân tích chuyên sâu tình hình thị trường hiện tại. Tổng hợp tin tức, dữ liệu và đưa ra nhận định độc lập về xu hướng.";
+    ? `Provide an in-depth analysis of: ${topic}. Evaluate from multiple angles, give independent opinions and forecast trends.`
+    : "";
 }
